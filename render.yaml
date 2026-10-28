@@ -1,0 +1,19 @@
+services:
+  - type: worker
+    name: talaba-yordamchisi-bot
+    runtime: docker
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: HEMIS_SESSION_KEY
+        sync: false
+      - key: REQUIRED_CHANNEL
+        value: "@oliy_talim_live"
+      - key: REQUIRED_CHANNEL_URL
+        value: "https://t.me/oliy_talim_live"
+      - key: SUPPORT_USERNAME
+        value: "MTX_2477"
+      - key: ADMIN_IDS
+        value: "6363461555"

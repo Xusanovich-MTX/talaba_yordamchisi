@@ -1,0 +1,11 @@
+services:
+  talaba_bot:
+    build: .
+    container_name: talaba_bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./talaba_bot.db:/app/talaba_bot.db
+      - ./backups:/app/backups
+      - ./runtime:/app/runtime

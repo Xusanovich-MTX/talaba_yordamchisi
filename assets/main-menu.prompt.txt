@@ -1,0 +1,10 @@
+Generated with the built-in image_gen tool.
+Asset: main-menu.png
+
+Use case: stylized-concept
+Asset type: landscape welcome banner for a Telegram student assistant bot, approximately 1536x1024.
+Primary request: a polished, friendly academic illustration for the bot's main menu.
+Subject: a graduation cap resting on a neat stack of books, beside a study planner calendar and a small reminder bell, representing class schedules and task deadlines.
+Style/medium: elegant tactile 3D illustration, subtle paper and matte ceramic textures, soft studio lighting, clean uncluttered composition with generous margins, appealing at phone screen size.
+Text (verbatim): "TALABA YORDAMCHISI" as one large crisp readable heading integrated above the objects. No other text.
+Constraints: landscape image, opaque background, professional and welcoming, no logos, no watermark, no Telegram interface, no people.

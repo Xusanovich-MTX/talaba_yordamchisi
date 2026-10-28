@@ -1,0 +1,17 @@
+# Maxfiy sozlamalar va ma'lumotlar bazasi
+.env
+*.db
+*.db-journal
+*.sqlite3
+
+# Python kesh va virtual muhit
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Runtime log va PID fayllar
+runtime/*.log
+runtime/*.pid

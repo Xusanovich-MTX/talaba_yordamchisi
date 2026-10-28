@@ -1,0 +1,7 @@
+Generated with the built-in image_gen tool using main-menu.png as the edit target.
+Saved as profile-photo.jpg with JPEG encoding for Telegram's InputProfilePhotoStatic.
+
+Use case: precise-object-edit
+Asset type: Telegram bot profile avatar.
+Input image: edit target, the existing TALABA YORDAMCHISI landscape banner.
+Primary request: adapt this same image into a square 1024x1024 profile picture. Recompose the same graduation cap, books, calendar and bell into a compact central arrangement so the important objects and title survive a circular avatar crop. Keep the original warm cream background, soft 3D rendered style, blue and gold text, materials and academic theme. Preserve the exact text "TALABA YORDAMCHISI" on two centered lines, fully legible, with generous outer margins; keep all text inside the central circle. Do not add extra wording, logos or watermarks. Full opaque square artwork, no external circular border.

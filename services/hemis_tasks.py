@@ -1,0 +1,321 @@
+"""Fetch and format upcoming unsubmitted student tasks from HEMIS."""
+
+import asyncio
+from datetime import date, datetime
+from html import escape
+from typing import Any
+from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
+
+import aiohttp
+
+from services.hemis_schedule import (
+    HemisScheduleError,
+    HemisSessionExpired,
+    _data_list,
+    _local_date,
+    _local_timezone,
+    _request,
+    _timestamp,
+    _week_for_date,
+)
+
+
+SUBMITTED_STATUS_CODES = {"12", "13"}
+SUBMITTED_STATUS_NAMES = {"topshirdi", "baholandi"}
+
+
+def _select_current_semester(
+    semesters: list[dict[str, Any]], target_date: date, local_timezone: ZoneInfo
+) -> dict[str, Any] | None:
+    if not semesters:
+        return None
+
+    try:
+        semester, week = _week_for_date(semesters, target_date, local_timezone)
+        if week is not None and semester:
+            return semester
+    except HemisScheduleError:
+        pass
+
+    # Check if target_date falls between the first and last week of any semester (e.g. Sunday)
+    for semester in semesters:
+        weeks = semester.get("weeks")
+        if not isinstance(weeks, list) or not weeks:
+            continue
+        starts = [
+            d for w in weeks if isinstance(w, dict)
+            and (d := _local_date(w.get("start_date"), local_timezone)) is not None
+        ]
+        ends = [
+            d for w in weeks if isinstance(w, dict)
+            and (d := _local_date(w.get("end_date"), local_timezone)) is not None
+        ]
+        if starts and ends and min(starts) <= target_date <= max(ends):
+            return semester
+
+    # Prefer semester where both semester.current and education_year.current are True
+    current_edu_semesters = [
+        s for s in semesters
+        if bool(s.get("current"))
+        and isinstance(s.get("education_year"), dict)
+        and bool(s["education_year"].get("current"))
+    ]
+    if current_edu_semesters:
+        return current_edu_semesters[-1]
+
+    current_semesters = [s for s in semesters if bool(s.get("current"))]
+    if current_semesters:
+        return current_semesters[-1]
+
+    return semesters[-1]
+
+
+def _is_unsubmitted_task(task: dict[str, Any]) -> bool:
+    status = task.get("taskStatus")
+    if isinstance(status, dict):
+        code = str(status.get("code") or "").strip()
+        name = str(status.get("name") or "").strip().casefold()
+        if code in SUBMITTED_STATUS_CODES or name in SUBMITTED_STATUS_NAMES:
+            return False
+
+    activity = task.get("studentTaskActivity")
+    if isinstance(activity, dict) and (
+        activity.get("send_date") is not None or activity.get("mark") is not None
+    ):
+        return False
+
+    attempt_count = task.get("attempt_count")
+    if isinstance(attempt_count, (int, float)) and attempt_count > 0:
+        return False
+
+    return True
+
+
+def select_upcoming_tasks(
+    tasks: list[dict[str, Any]],
+    *,
+    now: float | None = None,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    current_ts = now if now is not None else datetime.now().timestamp()
+    unsubmitted = [t for t in tasks if isinstance(t, dict) and _is_unsubmitted_task(t)]
+
+    upcoming: list[tuple[float, int, dict[str, Any]]] = []
+    overdue: list[tuple[float, int, dict[str, Any]]] = []
+    no_deadline: list[tuple[int, dict[str, Any]]] = []
+
+    for index, task in enumerate(unsubmitted):
+        deadline_ts = _timestamp(task.get("deadline"))
+        if deadline_ts is None:
+            no_deadline.append((index, task))
+        elif deadline_ts >= current_ts:
+            upcoming.append((deadline_ts, index, task))
+        else:
+            overdue.append((deadline_ts, index, task))
+
+    # Closest upcoming deadlines first
+    upcoming.sort(key=lambda item: (item[0], item[1]))
+    # Most recently expired first if needed to fill remaining slots
+    overdue.sort(key=lambda item: (-item[0], item[1]))
+
+    ordered = (
+        [item[2] for item in upcoming]
+        + [item[2] for item in overdue]
+        + [item[1] for item in no_deadline]
+    )
+    return ordered[: max(0, limit)]
+
+
+async def fetch_upcoming_tasks(
+    api_url: str,
+    session_data: dict[str, str],
+    timezone_name: str = "Asia/Tashkent",
+    *,
+    now: float | None = None,
+    limit: int = 3,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, str]]:
+    parsed = urlsplit(api_url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise HemisScheduleError("The selected HEMIS API URL is invalid.")
+
+    current_session = dict(session_data)
+    access_token = current_session.get("access_token")
+    if not access_token:
+        raise HemisSessionExpired("The HEMIS access token is missing.")
+
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as client:
+        async def authorized_get(path: str, params: dict[str, str] | None = None):
+            nonlocal access_token
+            url = f"{api_url.rstrip('/')}{path}"
+            status, payload = await _request(
+                client,
+                "GET",
+                url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                params=params,
+            )
+            if status == 401:
+                refresh_token = current_session.get("refresh_token")
+                if not refresh_token:
+                    raise HemisSessionExpired("The HEMIS session expired.")
+                refresh_status, refresh_payload = await _request(
+                    client,
+                    "POST",
+                    f"{api_url.rstrip('/')}/auth/refresh-token",
+                    headers={"X-Refresh-Token": refresh_token},
+                )
+                refresh_data = (
+                    refresh_payload.get("data")
+                    if isinstance(refresh_payload, dict)
+                    else None
+                )
+                if (
+                    refresh_status >= 400
+                    or not isinstance(refresh_data, dict)
+                    or not refresh_data.get("token")
+                ):
+                    raise HemisSessionExpired("The HEMIS session expired.")
+                access_token = str(refresh_data["token"])
+                current_session["access_token"] = access_token
+                current_session["refresh_token"] = str(
+                    refresh_data.get("refresh_token") or refresh_token
+                )
+                status, payload = await _request(
+                    client,
+                    "GET",
+                    url,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params=params,
+                )
+            if status == 401:
+                raise HemisSessionExpired("The HEMIS session expired.")
+            if status >= 400:
+                raise HemisScheduleError(f"HEMIS returned HTTP {status}.")
+            return _data_list(payload)
+
+        try:
+            semesters = await authorized_get("/education/semesters")
+            if not semesters:
+                return {}, [], current_session
+
+            local_timezone = _local_timezone(timezone_name)
+            current_dt = (
+                datetime.fromtimestamp(now, local_timezone)
+                if now is not None
+                else datetime.now(local_timezone)
+            )
+            semester = _select_current_semester(
+                semesters, current_dt.date(), local_timezone
+            )
+            if not semester:
+                return {}, [], current_session
+
+            semester_code = semester.get("code") or semester.get("id")
+            if semester_code is None:
+                raise HemisScheduleError("The selected semester has no code.")
+
+            raw_tasks = await authorized_get(
+                "/education/task-list", {"semester": str(semester_code)}
+            )
+            selected = select_upcoming_tasks(
+                raw_tasks, now=current_dt.timestamp(), limit=limit
+            )
+            return semester, selected, current_session
+        except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+            raise HemisScheduleError("Could not reach HEMIS.") from error
+
+
+def _format_time_remaining(diff_seconds: float) -> str:
+    if diff_seconds < 0:
+        return "⏰ Muddati o'tgan!"
+    total_minutes = int(diff_seconds // 60)
+    days = total_minutes // (24 * 60)
+    hours = (total_minutes % (24 * 60)) // 60
+    minutes = total_minutes % 60
+    if days > 0:
+        if hours > 0:
+            return f"⏳ {days} kun {hours} soat qoldi"
+        return f"⏳ {days} kun qoldi"
+    if hours > 0:
+        if minutes > 0:
+            return f"⏳ {hours} soat {minutes} daqiqa qoldi"
+        return f"⏳ {hours} soat qoldi"
+    return f"⏳ {max(1, minutes)} daqiqa qoldi"
+
+
+def format_upcoming_tasks(
+    tasks: list[dict[str, Any]],
+    timezone_name: str = "Asia/Tashkent",
+    *,
+    semester_name: str = "",
+    now: float | None = None,
+) -> str:
+    local_timezone = _local_timezone(timezone_name)
+    current_ts = now if now is not None else datetime.now(local_timezone).timestamp()
+
+    header = ["📝 <b>HEMIS: yuklashga yaqin topshiriqlar</b>"]
+    if semester_name:
+        header.append(escape(str(semester_name)))
+    header.append("")
+
+    if not tasks:
+        header.append("🎉 Hozircha yuklanmagan topshiriqlar topilmadi!")
+        return "\n".join(header)
+
+    blocks: list[str] = []
+    for idx, task in enumerate(tasks, 1):
+        subject = task.get("subject")
+        subject_name = (
+            str(subject.get("name") or "Noma'lum fan")
+            if isinstance(subject, dict)
+            else "Noma'lum fan"
+        )
+        title = str(task.get("name") or "Topshiriq").strip()
+        comment = str(task.get("comment") or "").strip()
+
+        lines = [f"<b>{idx}. 📚 {escape(subject_name)}</b>"]
+        lines.append(f"📌 <b>Topshiriq:</b> {escape(title)}")
+        if comment and comment.casefold() != title.casefold():
+            lines.append(f"💬 <b>Izoh:</b> {escape(comment)}")
+
+        employee = task.get("employee")
+        if isinstance(employee, dict) and employee.get("name"):
+            lines.append(f"👨‍🏫 <b>O'qituvchi:</b> {escape(str(employee['name']))}")
+
+        max_ball = task.get("max_ball")
+        attempt_limit = task.get("attempt_limit")
+        meta_parts = []
+        if max_ball is not None:
+            meta_parts.append(f"🎯 Maks. ball: <b>{escape(str(max_ball))}</b>")
+        if attempt_limit is not None:
+            used = task.get("attempt_count") or 0
+            meta_parts.append(f"🔄 Urinish: <b>{escape(str(used))}/{escape(str(attempt_limit))}</b>")
+        if meta_parts:
+            lines.append(" | ".join(meta_parts))
+
+        deadline_ts = _timestamp(task.get("deadline"))
+        if deadline_ts is not None:
+            deadline_dt = datetime.fromtimestamp(deadline_ts, local_timezone)
+            time_left = _format_time_remaining(deadline_ts - current_ts)
+            lines.append(f"📅 <b>Muddat:</b> {deadline_dt:%d.%m.%Y %H:%M} ({time_left})")
+
+        files = task.get("files")
+        if isinstance(files, list) and files:
+            file_links = []
+            for file_item in files:
+                if not isinstance(file_item, dict):
+                    continue
+                fname = str(file_item.get("name") or "Fayl").strip()
+                furl = str(file_item.get("url") or "").strip()
+                if furl.startswith(("https://", "http://")):
+                    file_links.append(f'<a href="{escape(furl, quote=True)}">{escape(fname)}</a>')
+                else:
+                    file_links.append(escape(fname))
+            if file_links:
+                lines.append("📎 " + ", ".join(file_links))
+
+        blocks.append("\n".join(lines))
+
+    return "\n".join(header) + "\n" + "\n\n".join(blocks)
