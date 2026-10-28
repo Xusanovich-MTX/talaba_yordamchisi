@@ -1,8 +1,11 @@
 import argparse
 import asyncio
 import logging
+import os
 from pathlib import Path
 
+import aiohttp
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -34,10 +37,48 @@ async def set_profile_photo():
     logger.info("Botning profil rasmi o'rnatildi.")
 
 
+async def _start_health_server() -> web.AppRunner | None:
+    """Render / Koyeb bepul Web Service uchun HTTP health-check server."""
+    port_str = os.getenv("PORT", "").strip()
+    if not port_str.isdigit():
+        return None
+
+    async def handle_health(_request: web.Request) -> web.Response:
+        return web.Response(text="OK - Talaba Yordamchisi Bot is running 24/7")
+
+    app = web.Application()
+    app.router.add_get("/", handle_health)
+    app.router.add_get("/health", handle_health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="0.0.0.0", port=int(port_str))
+    await site.start()
+    logger.info("Health-check HTTP server port %s da ishga tushdi.", port_str)
+
+    ping_url = (
+        os.getenv("SELF_PING_URL") or os.getenv("RENDER_EXTERNAL_URL") or ""
+    ).strip()
+    if ping_url:
+        async def _self_ping_loop() -> None:
+            url = f"{ping_url.rstrip('/')}/health"
+            while True:
+                await asyncio.sleep(600)
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, timeout=10):
+                            pass
+                except Exception:
+                    pass
+
+        asyncio.create_task(_self_ping_loop())
+    return runner
+
+
 async def main():
     # Bazani ishga tushirish
     await init_db()
     logger.info("Ma'lumotlar bazasi tayyor.")
+    await _start_health_server()
 
     # Bot va Dispatcher
     bot = Bot(

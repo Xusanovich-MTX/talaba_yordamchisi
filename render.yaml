@@ -1,8 +1,9 @@
 services:
-  - type: worker
+  - type: web
     name: talaba-yordamchisi-bot
     runtime: docker
-    plan: starter
+    plan: free
+    healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: BOT_TOKEN
