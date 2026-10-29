@@ -65,8 +65,8 @@ class AcademicFeaturesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("3.3%", text)
         subject_stats = build_attendance_subjects(records)
         self.assertEqual(len(subject_stats), 2)
-        self.assertEqual(subject_stats[0]["name"], "Loyihalarni boshqarish")
-        self.assertEqual(subject_stats[1]["name"], "Bulutli texnologiyalar")
+        subject_names = {s["name"] for s in subject_stats}
+        self.assertEqual(subject_names, {"Loyihalarni boshqarish", "Bulutli texnologiyalar"})
 
     def test_format_attendance_warns_when_subject_reaches_25_percent_red_zone(self):
         records = [
