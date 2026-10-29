@@ -33,7 +33,7 @@ from services.channel_sub import (
     unsubscribed_notified_users,
 )
 from services.hemis_auth import HemisLoginError, authenticate_hemis
-from services.hemis_catalog import get_hemis_institutions
+from services.hemis_catalog import get_hemis_institutions, match_hemis_institutions
 from services.hemis_session import encrypt_hemis_session
 
 router = Router()
@@ -359,16 +359,7 @@ async def search_hemis_institutions(message: Message, state: FSMContext):
         )
         return
 
-    normalized_query = query.casefold()
-    if len(normalized_query) == 1:
-        matches = [
-            item for item in catalog
-            if item["name"].casefold().startswith(normalized_query)
-        ]
-    else:
-        matches = [
-            item for item in catalog if normalized_query in item["name"].casefold()
-        ]
+    matches = match_hemis_institutions(catalog, query)
     if not matches:
         await message.answer("Mos OTM topilmadi. Nomini boshqacha yozib ko'ring.")
         return
@@ -384,7 +375,7 @@ async def search_hemis_institutions(message: Message, state: FSMContext):
 
 @router.inline_query()
 async def search_hemis_inline(inline_query: InlineQuery):
-    query = (inline_query.query or "").strip().casefold()
+    query = (inline_query.query or "").strip()
     if not query:
         await inline_query.answer([], cache_time=1, is_personal=True)
         return
@@ -395,22 +386,7 @@ async def search_hemis_inline(inline_query: InlineQuery):
         await inline_query.answer([], cache_time=1, is_personal=True)
         return
 
-    if len(query) == 1:
-        matches = [
-            institution for institution in catalog
-            if institution["name"].casefold().startswith(query)
-        ]
-    else:
-        matches = [
-            institution for institution in catalog
-            if query in institution["name"].casefold()
-        ]
-    matches.sort(
-        key=lambda institution: (
-            not institution["name"].casefold().startswith(query),
-            institution["name"].casefold(),
-        )
-    )
+    matches = match_hemis_institutions(catalog, query)
     results = [
         InlineQueryResultArticle(
             id=institution["code"],

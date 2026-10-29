@@ -487,6 +487,46 @@ class IdentityTests(unittest.IsolatedAsyncioTestCase):
         await start.search_hemis_inline(empty_inline)
         self.assertEqual(empty_inline.answer.await_args.args[0], [])
 
+    async def test_smart_institution_search_finds_samdaqu_and_all_variants(self):
+        from services.hemis_catalog import SUPPLEMENTAL_INSTITUTIONS, match_hemis_institutions
+
+        catalog = list(SUPPLEMENTAL_INSTITUTIONS) + [
+            {
+                "code": "313",
+                "name": "Samarqand davlat texnika universiteti",
+                "api_url": "https://student.samdaqu.edu.uz/rest/v1/",
+                "student_url": "https://student.samdaqu.edu.uz/",
+            },
+            {
+                "code": "342",
+                "name": "Farg\u2018ona davlat universiteti",
+                "api_url": "https://student.fdu.uz/rest/v1/",
+                "student_url": "https://student.fdu.uz/",
+            },
+            {
+                "code": "380",
+                "name": "Muhammad al-Xorazmiy nomidagi Toshkent axborot texnologiyalari universiteti",
+                "api_url": "https://xmn.tuit.uz/rest/v1/",
+                "student_url": "https://xmn.tuit.uz/",
+            },
+        ]
+
+        for q in (
+            "samarqand davlat arxitektura qurilish",
+            "Samarqand arxitektura",
+            "SamDAQU",
+            "Самарқанд давлат архитектура қурилиш",
+        ):
+            matches = match_hemis_institutions(catalog, q)
+            self.assertTrue(
+                any("313" in item["code"] for item in matches),
+                f"Failed to match SamDAQU for query: {q}",
+            )
+
+        self.assertEqual(match_hemis_institutions(catalog, "Farg'ona")[0]["code"], "342")
+        self.assertEqual(match_hemis_institutions(catalog, "Fargona")[0]["code"], "342")
+        self.assertEqual(match_hemis_institutions(catalog, "TATU")[0]["code"], "380")
+
 
 if __name__ == "__main__":
     unittest.main()
