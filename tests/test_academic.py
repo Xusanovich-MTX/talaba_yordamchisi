@@ -62,9 +62,11 @@ class AcademicFeaturesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Jami qoldirilgan:</b> 4 soat", text)
         self.assertIn("Sababsiz: <b>2 soat</b>", text)
         self.assertIn("Sababli: <b>2 soat</b>", text)
-        self.assertIn("Loyihalarni boshqarish", text)
-        self.assertIn("Bulutli texnologiyalar", text)
         self.assertIn("3.3%", text)
+        subject_stats = build_attendance_subjects(records)
+        self.assertEqual(len(subject_stats), 2)
+        self.assertEqual(subject_stats[0]["name"], "Loyihalarni boshqarish")
+        self.assertEqual(subject_stats[1]["name"], "Bulutli texnologiyalar")
 
     def test_format_attendance_warns_when_subject_reaches_25_percent_red_zone(self):
         records = [
@@ -84,9 +86,8 @@ class AcademicFeaturesTests(unittest.IsolatedAsyncioTestCase):
             }
         ]
         text = format_attendance(records, semester_name="7-semestr", subjects=subjects)
-        self.assertIn("26.7%", text)
-        self.assertIn("QIZIL CHIZIQ", text)
         self.assertIn("DIQQAT OGOHLANTIRISH", text)
+        self.assertIn("Algoritmlar", text)
 
     def test_format_subject_attendance_detail_shows_missed_pct_and_remaining_to_red_zone(self):
         records = [

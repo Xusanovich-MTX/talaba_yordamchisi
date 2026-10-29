@@ -381,31 +381,10 @@ def format_attendance(
     lines.append(
         "⚠️ <i>Qoida: Fan bo'yicha davomat <b>25%</b> ga yetsa, talaba qizil chiziqqa tushadi.</i>"
     )
-    lines.append("")
-    lines.append("📊 <b>Fanlar bo'yicha qisqacha holat:</b>")
 
-    red_subjects: list[str] = []
-    for s_idx, stats in enumerate(subject_stats, 1):
-        subj_name = stats["name"]
-        aud_h = max(int(stats["aud_hours"]), 1)
-        tot_h = int(stats["total"])
-        pct = float(stats["pct"])
-        remaining_h = float(stats["remaining_hours"])
-
-        if pct >= 25.0:
-            red_subjects.append(subj_name)
-            pct_badge = f"🔴 <b>{pct}%</b> (🚨 QIZIL CHIZIQ)"
-        elif pct >= 20.0:
-            pct_badge = f"🟡 <b>{pct}%</b> (⚠️ qizilgacha {_fmt_hours(remaining_h)} s)"
-        elif tot_h > 0:
-            pct_badge = f"🟢 <b>{pct}%</b> (qizilgacha {_fmt_hours(remaining_h)} s)"
-        else:
-            pct_badge = "🟢 <b>0%</b>"
-
-        lines.append(
-            f"<b>{s_idx}. 📚 {escape(subj_name)}</b> — {tot_h}/{aud_h} soat ({pct_badge})"
-        )
-
+    red_subjects = [
+        stats["name"] for stats in subject_stats if float(stats["pct"]) >= 25.0
+    ]
     if red_subjects:
         lines.append("")
         lines.append(
@@ -416,7 +395,7 @@ def format_attendance(
 
     lines.append("")
     lines.append(
-        "👇 <b>Fan ustiga bosing</b> — o'sha fandan qancha dars qoldirilgani, necha foiz bo'lgani va necha darsdan keyin qizilga tushishini alohida ko'rasiz:"
+        "👇 <b>Quyidagi fanlardan birini tanlang</b> — o'sha fanning dars soatlari, foizi va qizil chiziq hisobini alohida ko'rasiz:"
     )
     return "\n".join(lines)
 
