@@ -117,7 +117,7 @@ class SettingsTests(unittest.IsolatedAsyncioTestCase):
 
 
 
-    async def test_share_url_button_targets_friends_without_top_url(self):
+    async def test_settings_only_shows_notification_toggles(self):
         user = SimpleNamespace(notify_class=True, notify_deadline=True)
         message = SimpleNamespace(
             from_user=SimpleNamespace(id=42), answer=AsyncMock()
@@ -127,21 +127,11 @@ class SettingsTests(unittest.IsolatedAsyncioTestCase):
         await start.settings_handler(message, session)
 
         keyboard = message.answer.await_args.kwargs["reply_markup"]
-        share_btn = keyboard.inline_keyboard[2][0]
-        self.assertEqual(share_btn.text, "📤 Do'stlarga ulashish")
-        self.assertEqual(share_btn.url, start.BOT_SHARE_URL)
-        # Verify url= is not passed, so telegram doesn't put link on the 1st line
-        self.assertNotIn("url=https", start.BOT_SHARE_URL)
-        self.assertIn("assistant_n1_bot", start.BOT_SHARE_URL)
-
-    async def test_legacy_share_invite_callback_redirects_via_answer_url(self):
-        callback = SimpleNamespace(
-            message=SimpleNamespace(answer=AsyncMock()),
-            answer=AsyncMock(),
-        )
-        await start.share_invite(callback)
-        callback.answer.assert_awaited_once_with(url=start.BOT_SHARE_URL)
-        callback.message.answer.assert_not_awaited()
+        self.assertEqual(len(keyboard.inline_keyboard), 2)
+        self.assertEqual(keyboard.inline_keyboard[0][0].text, "✅ Dars eslatmalari")
+        self.assertEqual(keyboard.inline_keyboard[0][0].callback_data, "toggle_class")
+        self.assertEqual(keyboard.inline_keyboard[1][0].text, "✅ Deadline eslatmalari")
+        self.assertEqual(keyboard.inline_keyboard[1][0].callback_data, "toggle_deadline")
 
 
 if __name__ == "__main__":

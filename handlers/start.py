@@ -697,7 +697,7 @@ async def help_handler(message: Message):
         "🎯 <b>GPA ballar</b> — Semestr va yillik (kurslar bo'yicha) GPA ko'rsatkichlari.\n"
         "🎓 <b>Imtihonlar</b> — Oraliq va yakuniy nazorat imtihonlari jadvali.\n"
         "📚 <b>Resurslar</b> — Fanlar bo'yicha elektron ma'ruza va taqdimot fayllari.\n"
-        "⚙️ <b>Sozlamalar</b> — Dars va topshiriq eslatmalarini boshqarish hamda botni do'stlarga ulashish.\n"
+        "⚙️ <b>Sozlamalar</b> — Dars va topshiriq eslatmalarini boshqarish.\n"
         "🚪 <b>Tizimdan chiqish</b> — Boshqa profilga ulanish uchun joriy HEMIS akkauntdan chiqish.\n\n"
         "🆔 /id — raqamli Telegram ID'ingizni ko'rish.\n"
         f"👨‍💻 Qo'shimcha yordam va murojaat uchun: @{escape(SUPPORT_USERNAME)}"
@@ -713,10 +713,6 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(
             text=f"{'✅' if user.notify_deadline else '❌'} Deadline eslatmalari",
             callback_data="toggle_deadline"
-        )],
-        [InlineKeyboardButton(
-            text="📤 Do'stlarga ulashish",
-            url=BOT_SHARE_URL,
         )],
     ])
 
