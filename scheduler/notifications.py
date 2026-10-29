@@ -1,4 +1,6 @@
+import ctypes
 import logging
+import os
 import time as time_module
 from datetime import date, datetime, time, timedelta
 from html import escape
@@ -191,11 +193,23 @@ async def _send_class_reminder(
 
 async def check_schedule_reminders(bot: Bot):
     """Darsdan 10 daqiqa, 5 daqiqa oldin va dars boshlanganda eslatma yuborish"""
+    if os.name == "nt":
+        try:
+            ctypes.windll.kernel32.SetThreadExecutionState(
+                0x80000000 | 0x00000001 | 0x00000002 | 0x00000040
+            )
+        except Exception:
+            pass
     now = datetime.now(TIMEZONE).replace(tzinfo=None)
     earliest_window = now - timedelta(minutes=1)
     latest_window = now + timedelta(minutes=12)
 
     async with async_session() as session:
+        # 0. Barcha ro'yxatdan o'tgan foydalanuvchilarning kanal obunasini tekshirish
+        all_users_res = await session.execute(select(User))
+        for reg_user in all_users_res.scalars().all():
+            await _check_user_channel_or_stop(bot, reg_user.telegram_id)
+
         # 1. Lokal bazadagi dars jadvallarini tekshirish
         result = await session.execute(
             select(Schedule, User)

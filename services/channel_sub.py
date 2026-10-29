@@ -1,6 +1,4 @@
-import json
 import logging
-from pathlib import Path
 
 import config
 from aiogram import Bot
@@ -8,35 +6,11 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
 
-CONFIRMED_FILE = Path(__file__).resolve().parents[1] / "runtime" / "confirmed_channel_users.json"
-
-# Kanaldan chiqib ketganda foydalanuvchiga qayta-qayta xabar yubormaslik uchun
+# Kanaldan chiqib ketganda yoki obuna bo'lmaganda foydalanuvchiga qayta-qayta xabar yubormaslik uchun
 unsubscribed_notified_users: set[int] = set()
 
-
-def _load_confirmed_users() -> set[int]:
-    try:
-        if CONFIRMED_FILE.exists():
-            data = json.loads(CONFIRMED_FILE.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return {int(x) for x in data}
-    except Exception:
-        pass
-    return set()
-
-
-def _save_confirmed_users(users: set[int]) -> None:
-    try:
-        CONFIRMED_FILE.parent.mkdir(exist_ok=True)
-        CONFIRMED_FILE.write_text(
-            json.dumps(sorted(users)), encoding="utf-8"
-        )
-    except Exception:
-        pass
-
-
-# Agar bot kanalda admin bo'lmasa (member list is inaccessible), Tasdiqlash bosganlarni saqlab qolish
-confirmed_channel_users: set[int] = _load_confirmed_users()
+# Agar bot hali kanalga admin qilinmagan bo'lsa, adminga bir marta eslatma yuborish uchun
+_admin_warned_inaccessible: bool = False
 
 
 def is_bot_admin(user_id: int) -> bool:
@@ -69,6 +43,37 @@ def get_channel_config() -> tuple[str | int, str] | None:
     return chat_id, url
 
 
+async def _warn_admin_bot_not_channel_admin(bot: Bot, chat_id: str | int) -> None:
+    global _admin_warned_inaccessible
+    if _admin_warned_inaccessible:
+        return
+    _admin_warned_inaccessible = True
+    admin_ids = getattr(config, "ADMIN_IDS", {6363461555})
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="➕ Kanalga Admin qilish (1 bosishda)",
+                    url="https://t.me/assistant_n1_bot?startchannel&admin=invite_users+manage_chat",
+                )
+            ]
+        ]
+    )
+    text = (
+        f"⚠️ <b>Muhim sozlama (Admin uchun):</b>\n\n"
+        f"Telegram qoidasiga ko'ra, bot <b>{chat_id}</b> kanaliga a'zo bo'lgan yoki "
+        f"chiqib ketgan foydalanuvchilarni haqiqiy tekshira olishi uchun "
+        f"<b>@assistant_n1_bot</b> ushbu kanalda <b>Administrator</b> bo'lishi shart!\n\n"
+        f"👇 Pastdagi tugmani bosib, <b>Oliy Ta'lim Live ({chat_id})</b> kanalini tanlang va "
+        f"botni 1 bosishda Administrator qiling:"
+    )
+    for admin_id in admin_ids:
+        try:
+            await bot.send_message(chat_id=admin_id, text=text, reply_markup=kb)
+        except Exception:
+            pass
+
+
 async def is_user_subscribed(
     bot: Bot,
     user_id: int,
@@ -76,12 +81,9 @@ async def is_user_subscribed(
     confirming: bool = False,
     background_check: bool = False,
 ) -> bool:
-    """Foydalanuvchi majburiy kanalga a'zo ekanligini tekshiradi.
-    Bot admini (egasi) uchun doim True qaytaradi.
+    """Foydalanuvchi majburiy kanalga haqiqatan a'zo ekanligini qat'iy tekshiradi.
+    Kanalga a'zo bo'lmagan hech kim (hatto Tasdiqlash tugmasini bossa ham) o'ta olmaydi.
     """
-    if is_bot_admin(user_id):
-        return True
-
     cfg = get_channel_config()
     if cfg is None:
         return True
@@ -94,32 +96,26 @@ async def is_user_subscribed(
             return True
         if status in ("creator", "administrator", "member"):
             unsubscribed_notified_users.discard(user_id)
-            if user_id not in confirmed_channel_users:
-                confirmed_channel_users.add(user_id)
-                _save_confirmed_users(confirmed_channel_users)
             return True
         if status == "restricted" and getattr(member, "is_member", False):
             unsubscribed_notified_users.discard(user_id)
-            if user_id not in confirmed_channel_users:
-                confirmed_channel_users.add(user_id)
-                _save_confirmed_users(confirmed_channel_users)
             return True
-        if user_id in confirmed_channel_users:
-            confirmed_channel_users.discard(user_id)
-            _save_confirmed_users(confirmed_channel_users)
         return False
     except Exception as exc:
         err_text = str(exc).lower()
-        if "member list is inaccessible" in err_text or "chat not found" in err_text:
-            if confirming:
-                confirmed_channel_users.add(user_id)
-                _save_confirmed_users(confirmed_channel_users)
-                unsubscribed_notified_users.discard(user_id)
-                return True
+        if "member list is inaccessible" in err_text or "chat_admin_required" in err_text:
+            logger.warning(
+                "Kanal (%s) a'zolar ro'yxati yopiq — botni kanalga Admin qilish kerak: %s",
+                chat_id,
+                exc,
+            )
+            await _warn_admin_bot_not_channel_admin(bot, chat_id)
             if background_check:
                 return True
-            return user_id in confirmed_channel_users
+            return False
         logger.warning("Kanal a'zoligini tekshirishda xatolik (%s): %s", chat_id, exc)
+        if background_check:
+            return True
         return False
 
 
@@ -148,13 +144,14 @@ def subscription_prompt_kb(channel_url: str | None = None) -> InlineKeyboardMark
 def subscription_prompt_text(*, left: bool = False) -> str:
     if left:
         return (
-            "⚠️ <b>Siz kanalga ulanmagansiz!</b>\n\n"
-            "Kanaldan chiqib ketganingiz sababli bot o'z ishini va avtomatik eslatmalarni to'xtatdi.\n"
-            "Bot qayta ishlashi uchun quyidagi havola orqali kanalga a'zo bo'ling va "
-            "<b>«✅ Tasdiqlash»</b> tugmasini bosing:"
+            "⚠️ <b>Siz kanalga ulanmagansiz yoki kanaldan chiqib ketdingiz!</b>\n\n"
+            "Kanalga a'zo bo'lmasdan turib botdan foydalanish va avtomatik eslatmalarni olish mumkin emas.\n"
+            "Bot ishlashi uchun quyidagi tugma orqali kanalga a'zo bo'ling va "
+            "<b>«✅ Tasdiqlash (A'zo bo'ldim)»</b> tugmasini bosing:"
         )
     return (
         "🔒 <b>Bot ishga tushishi uchun avval kanalimizga a'zo bo'ling!</b>\n\n"
+        "Kanalga a'zo bo'lmasdan turib botdan foydalanib bo'lmaydi.\n"
         "Pastdagi <b>«📢 Kanalga a'zo bo'lish»</b> tugmasi orqali kanalga o'tib obuna bo'ling, "
-        "so'ng <b>«✅ Tasdiqlash»</b> tugmasini bosing:"
+        "so'ng <b>«✅ Tasdiqlash (A'zo bo'ldim)»</b> tugmasini bosing:"
     )

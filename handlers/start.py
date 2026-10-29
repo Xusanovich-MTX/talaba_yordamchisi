@@ -184,7 +184,7 @@ async def on_channel_member_update(
         return
 
     member_user = event.new_chat_member.user
-    if not member_user or member_user.is_bot or is_bot_admin(member_user.id):
+    if not member_user or member_user.is_bot:
         return
 
     new_status = event.new_chat_member.status

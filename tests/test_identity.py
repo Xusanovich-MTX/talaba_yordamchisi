@@ -398,6 +398,23 @@ class IdentityTests(unittest.IsolatedAsyncioTestCase):
                 await start.cmd_start(message, session, AsyncMock())
                 self.assertIn("kanalimizga a'zo bo'ling", message.answer.await_args.args[0])
 
+                # A'zo bo'lmasdan turib Tasdiqlashni bossa rad etilishi shart
+                unsub_callback = SimpleNamespace(
+                    data="check_channel_sub",
+                    from_user=SimpleNamespace(
+                        id=900001, username="MTX_2477", full_name="Student <test>"
+                    ),
+                    bot=SimpleNamespace(
+                        get_chat_member=AsyncMock(return_value=SimpleNamespace(status="left"))
+                    ),
+                    message=SimpleNamespace(delete=AsyncMock(), answer=AsyncMock()),
+                    answer=AsyncMock(),
+                )
+                await start.verify_channel_subscription(unsub_callback, session)
+                unsub_callback.answer.assert_awaited_once()
+                self.assertTrue(unsub_callback.answer.await_args.kwargs.get("show_alert"))
+                unsub_callback.message.answer.assert_not_awaited()
+
                 # Endi foydalanuvchi kanalga a'zo bo'lib Tasdiqlashni bosadi
                 callback = SimpleNamespace(
                     data="check_channel_sub",
