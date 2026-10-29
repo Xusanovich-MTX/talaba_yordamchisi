@@ -48,11 +48,15 @@ HEMIS_CACHE_TTL_SECONDS = 900
 _hemis_day_cache: dict[tuple[int, str], tuple[float, list[dict[str, Any]]]] = {}
 _hemis_tasks_cache: dict[int, tuple[float, list[dict[str, Any]]]] = {}
 
-# Dars boshlanishidan 10 daqiqa, 5 daqiqa oldin va dars boshlanganda eslatma oynalari
+# Dars boshlanishidan aniq 10 daqiqa, 5 daqiqa oldin va dars boshlanganda eslatma oynalari
+# Masalan, 12:20 dagi dars uchun:
+# - 10 daqiqalik eslatma: faqat 12:10:00 .. 12:11:00 oralig'ida
+# - 5 daqiqalik eslatma: faqat 12:15:00 .. 12:16:00 oralig'ida (12:13 yoki 12:14 da emas!)
+# - 0 daqiqalik (boshlandi) eslatma: faqat 12:20:00 .. 12:21:00 oralig'ida
 CLASS_REMINDER_WINDOWS: tuple[tuple[int, timedelta, timedelta], ...] = (
-    (10, timedelta(minutes=8), timedelta(minutes=12)),
-    (5, timedelta(minutes=3), timedelta(minutes=7)),
-    (0, timedelta(minutes=-1), timedelta(minutes=1)),
+    (10, timedelta(minutes=9), timedelta(minutes=10)),
+    (5, timedelta(minutes=4), timedelta(minutes=5)),
+    (0, timedelta(minutes=-1), timedelta(minutes=0)),
 )
 
 # Topshiriq muddati tugashidan 3 kun, 1 kun va 3 soat oldin eslatma oynalari (daqiqalarda)

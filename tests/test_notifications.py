@@ -134,6 +134,33 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
             self.bot.send_message.await_args.kwargs["text"],
         )
 
+    async def test_class_reminders_do_not_fire_early_at_12_13_for_12_20_class(self):
+        await self.save(self.schedule(start_time=time(12, 20)))
+
+        # 12:08 va 12:09 da 10 daqiqalik eslatma kelmasligi kerak
+        for early_min in (8, 9):
+            with clock_at(datetime(2026, 10, 26, 12, early_min, 15)):
+                await notifications.check_schedule_reminders(self.bot)
+        self.bot.send_message.assert_not_awaited()
+
+        # Aniq 12:10 da 10 daqiqalik eslatma keladi
+        with clock_at(datetime(2026, 10, 26, 12, 10, 20)):
+            await notifications.check_schedule_reminders(self.bot)
+        self.assertEqual(self.bot.send_message.await_count, 1)
+        self.assertIn("10 daqiqadan keyin", self.bot.send_message.await_args.kwargs["text"])
+
+        # 12:13 va 12:14 da 5 daqiqalik eslatma kelmasligi kerak!
+        for early_min in (13, 14):
+            with clock_at(datetime(2026, 10, 26, 12, early_min, 30)):
+                await notifications.check_schedule_reminders(self.bot)
+        self.assertEqual(self.bot.send_message.await_count, 1)
+
+        # Aniq 12:15 da 5 daqiqalik eslatma keladi
+        with clock_at(datetime(2026, 10, 26, 12, 15, 10)):
+            await notifications.check_schedule_reminders(self.bot)
+        self.assertEqual(self.bot.send_message.await_count, 2)
+        self.assertIn("5 daqiqadan keyin", self.bot.send_message.await_args.kwargs["text"])
+
     async def test_two_users_receive_only_their_own_reminders(self):
         now = datetime(2026, 10, 26, 9, 0)
         other_user = User(
