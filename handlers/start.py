@@ -716,7 +716,7 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
         )],
         [InlineKeyboardButton(
             text="📤 Do'stlarga ulashish",
-            callback_data="share_invite",
+            url=BOT_SHARE_URL,
         )],
     ])
 
@@ -734,7 +734,7 @@ async def settings_handler(message: Message, session: AsyncSession):
 
     await message.answer(
         "⚙️ <b>Sozlamalar</b>\n\n"
-        "Eslatmalarni yoqish yoki o'chirish hamda botni do'stlarga ulashish uchun quyidagi tugmalardan foydalaning:",
+        "Eslatmalarni yoqish yoki o'chirish uchun quyidagi tugmalardan foydalaning:",
         reply_markup=settings_kb(user),
     )
 

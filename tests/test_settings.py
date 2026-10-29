@@ -117,26 +117,22 @@ class SettingsTests(unittest.IsolatedAsyncioTestCase):
 
 
 
-    async def test_share_invite_sends_invitation_with_bottom_buttons(self):
-        message = SimpleNamespace(answer=AsyncMock())
-        callback = SimpleNamespace(
-            message=message,
-            answer=AsyncMock(),
+    async def test_share_url_button_targets_friends_without_top_url(self):
+        user = SimpleNamespace(notify_class=True, notify_deadline=True)
+        message = SimpleNamespace(
+            from_user=SimpleNamespace(id=42), answer=AsyncMock()
         )
-        await start.share_invite(callback)
-        callback.answer.assert_awaited_once()
-        message.answer.assert_awaited_once()
-        text = message.answer.await_args.args[0]
-        self.assertIn("«Talaba Yordamchisi»", text)
+        session = session_for(user)
+
+        await start.settings_handler(message, session)
+
         keyboard = message.answer.await_args.kwargs["reply_markup"]
-        buttons = [btn for row in keyboard.inline_keyboard for btn in row]
-        self.assertEqual(len(buttons), 2)
-        self.assertEqual(buttons[0].text, "🤖 Botga ulanish")
-        self.assertEqual(buttons[0].url, start.BOT_LINK)
-        self.assertEqual(buttons[1].text, "📤 Ulashish")
-        self.assertEqual(buttons[1].url, start.BOT_SHARE_URL)
-        # Verify link is not at the top of the shared text
+        share_btn = keyboard.inline_keyboard[2][0]
+        self.assertEqual(share_btn.text, "📤 Do'stlarga ulashish")
+        self.assertEqual(share_btn.url, start.BOT_SHARE_URL)
+        # Verify url= is not passed, so telegram doesn't put link on the 1st line
         self.assertNotIn("url=https", start.BOT_SHARE_URL)
+        self.assertIn("assistant_n1_bot", start.BOT_SHARE_URL)
 
 
 if __name__ == "__main__":
