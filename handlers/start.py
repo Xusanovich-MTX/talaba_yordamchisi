@@ -40,17 +40,15 @@ router = Router()
 
 BOT_LINK = "https://t.me/assistant_n1_bot"
 BOT_SHARE_TEXT = (
-    "\n🚀 HEMIS’ga har safar login-parol terib kirishdan charchadingizmi?\n\n"
+    "🚀 HEMIS’ga har safar login-parol terib kirishdan charchadingizmi?\n\n"
     "🎓 «Talaba Yordamchisi» — har bir talabada bo'lishi shart bo'lgan shaxsiy HEMIS bot!\n\n"
     "⏰ Para boshlanishidan 10, 5 daqiqa oldin va dars boshlanganda avto-eslatma\n"
     "🔥 Topshiriq (deadline) muddati tugashidan oldin ogohlantirish\n"
     "📊 Dars jadvali, Davomat (NB), Baholar, Semestr/Yillik GPA va Fan resurslari — hammasi bitta joyda!\n\n"
-    "👇 Hoziroq ulanib oling!"
+    "👇 Hoziroq quyidagi havola orqali ulaning:\n"
+    f"👉 {BOT_LINK}"
 )
-BOT_SHARE_URL = (
-    f"https://t.me/share/url?url={quote(BOT_LINK, safe='')}"
-    f"&text={quote(BOT_SHARE_TEXT, safe='')}"
-)
+BOT_SHARE_URL = f"https://t.me/share/url?text={quote(BOT_SHARE_TEXT, safe='')}" 
 
 
 class Registration(StatesGroup):
@@ -717,8 +715,8 @@ def settings_kb(user: User) -> InlineKeyboardMarkup:
             callback_data="toggle_deadline"
         )],
         [InlineKeyboardButton(
-            text="📤 Do'stlarga ulashing",
-            url=BOT_SHARE_URL,
+            text="📤 Do'stlarga ulashish",
+            callback_data="share_invite",
         )],
     ])
 
@@ -736,11 +734,34 @@ async def settings_handler(message: Message, session: AsyncSession):
 
     await message.answer(
         "⚙️ <b>Sozlamalar</b>\n\n"
-        "Eslatmalarni yoqish yoki o'chirish uchun quyidagi tugmalardan foydalaning:\n\n"
-        f"🔗 <b>Do'stlarga ulashing:</b> <a href=\"{BOT_SHARE_URL}\">{BOT_LINK}</a>",
+        "Eslatmalarni yoqish yoki o'chirish hamda botni do'stlarga ulashish uchun quyidagi tugmalardan foydalaning:",
         reply_markup=settings_kb(user),
-        disable_web_page_preview=True,
     )
+
+
+@router.callback_query(F.data == "share_invite")
+async def share_invite(callback: CallbackQuery):
+    await callback.answer()
+    share_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🤖 Botga ulanish", url=BOT_LINK),
+            InlineKeyboardButton(text="📤 Ulashish", url=BOT_SHARE_URL),
+        ]
+    ])
+    share_text = (
+        "🚀 <b>HEMIS’ga har safar login-parol terib kirishdan charchadingizmi?</b>\n\n"
+        "🎓 <b>«Talaba Yordamchisi»</b> — har bir talabada bo'lishi shart bo'lgan shaxsiy HEMIS bot!\n\n"
+        "⏰ Para boshlanishidan 10, 5 daqiqa oldin va dars boshlanganda avto-eslatma\n"
+        "🔥 Topshiriq (deadline) muddati tugashidan oldin ogohlantirish\n"
+        "📊 Dars jadvali, Davomat (NB), Baholar, Semestr/Yillik GPA va Fan resurslari — hammasi bitta joyda!\n\n"
+        "👇 <b>Hoziroq do'stlaringizga ulashing yoki quyidagi tugma orqali botga kiring:</b>"
+    )
+    if callback.message:
+        await callback.message.answer(
+            share_text,
+            reply_markup=share_kb,
+            disable_web_page_preview=True,
+        )
 
 
 async def _toggle_notification(

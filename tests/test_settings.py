@@ -29,6 +29,7 @@ class SettingsTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertIn(start.toggle_class, callbacks)
         self.assertIn(start.toggle_deadline, callbacks)
+        self.assertIn(start.share_invite, callbacks)
 
         handler_counts = (
             len(start.router.message.handlers),
@@ -113,6 +114,29 @@ class SettingsTests(unittest.IsolatedAsyncioTestCase):
         )
         session.commit.assert_not_awaited()
         callback.message.edit_reply_markup.assert_not_awaited()
+
+
+
+    async def test_share_invite_sends_invitation_with_bottom_buttons(self):
+        message = SimpleNamespace(answer=AsyncMock())
+        callback = SimpleNamespace(
+            message=message,
+            answer=AsyncMock(),
+        )
+        await start.share_invite(callback)
+        callback.answer.assert_awaited_once()
+        message.answer.assert_awaited_once()
+        text = message.answer.await_args.args[0]
+        self.assertIn("«Talaba Yordamchisi»", text)
+        keyboard = message.answer.await_args.kwargs["reply_markup"]
+        buttons = [btn for row in keyboard.inline_keyboard for btn in row]
+        self.assertEqual(len(buttons), 2)
+        self.assertEqual(buttons[0].text, "🤖 Botga ulanish")
+        self.assertEqual(buttons[0].url, start.BOT_LINK)
+        self.assertEqual(buttons[1].text, "📤 Ulashish")
+        self.assertEqual(buttons[1].url, start.BOT_SHARE_URL)
+        # Verify link is not at the top of the shared text
+        self.assertNotIn("url=https", start.BOT_SHARE_URL)
 
 
 if __name__ == "__main__":
