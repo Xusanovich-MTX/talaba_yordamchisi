@@ -60,12 +60,54 @@ async def show_hemis_schedule(
         await message.answer(connection_error, reply_markup=main_menu_kb())
         return
 
+    week_dates = schedule_week_dates(user.timezone)
+    monday = week_dates[0]
+    saturday = week_dates[-1]
     await message.answer(
-        "📅 <b>HEMIS dars jadvali</b>\n\n"
-        "Joriy haftadan kunni tanlang. Tanlangan kun jadvali HEMISdan olinadi.",
-        reply_markup=hemis_weekdays_kb(schedule_week_dates(user.timezone)),
+        "📅 <b>HEMIS dars jadvali</b>\n"
+        f"🗓 <b>Hafta:</b> {monday:%d.%m.%Y} — {saturday:%d.%m.%Y}\n\n"
+        "Kunni tanlang. Tanlangan kun jadvali HEMISdan olinadi.",
+        reply_markup=hemis_weekdays_kb(week_dates),
     )
 
+
+
+@router.callback_query(F.data.startswith("hemis_week:"))
+async def switch_hemis_week(callback: CallbackQuery, session: AsyncSession):
+    prefix, _, date_text = (callback.data or "").partition(":")
+    try:
+        monday = date.fromisoformat(date_text)
+        if monday.weekday() != 0:
+            monday = monday - timedelta(days=monday.weekday())
+        week_dates = [monday + timedelta(days=offset) for offset in range(6)]
+    except (ValueError, OverflowError):
+        await callback.answer("Hafta sanasi noto'g'ri.", show_alert=True)
+        return
+
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        await callback.answer()
+        return
+
+    user = await session.scalar(
+        select(User).where(User.telegram_id == callback.from_user.id)
+    )
+    connection_error = _hemis_connection_error(user)
+    if connection_error:
+        await callback.answer(connection_error, show_alert=True)
+        return
+
+    await callback.answer()
+    saturday = week_dates[-1]
+    text = (
+        "📅 <b>HEMIS dars jadvali</b>\n"
+        f"🗓 <b>Hafta:</b> {monday:%d.%m.%Y} — {saturday:%d.%m.%Y}\n\n"
+        "Kunni tanlang. Tanlangan kun jadvali HEMISdan olinadi."
+    )
+    markup = hemis_weekdays_kb(week_dates)
+    try:
+        await callback.message.edit_text(text, reply_markup=markup)
+    except Exception:
+        await callback.message.answer(text, reply_markup=markup)
 
 @router.callback_query(F.data.startswith("hemis_day:"))
 async def show_hemis_day(callback: CallbackQuery, session: AsyncSession):
@@ -75,7 +117,7 @@ async def show_hemis_day(callback: CallbackQuery, session: AsyncSession):
         if prefix != "hemis_day" or date_text != selected_date.isoformat():
             raise ValueError
         monday = selected_date - timedelta(days=selected_date.weekday())
-        week_dates = [monday + timedelta(days=offset) for offset in range(7)]
+        week_dates = [monday + timedelta(days=offset) for offset in range(6)]
     except (ValueError, OverflowError):
         await callback.answer("Kun noto'g'ri. Dars jadvalini qayta oching.", show_alert=True)
         return

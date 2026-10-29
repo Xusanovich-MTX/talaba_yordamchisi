@@ -67,9 +67,9 @@ class HemisScheduleTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(dates[0], date(2026, 10, 26))
-        self.assertEqual(dates[-1], date(2026, 11, 1))
-        self.assertEqual(len(set(dates)), 7)
-        self.assertEqual([day.weekday() for day in dates], list(range(7)))
+        self.assertEqual(dates[-1], date(2026, 10, 31))
+        self.assertEqual(len(set(dates)), 6)
+        self.assertEqual([day.weekday() for day in dates], list(range(6)))
 
     async def test_day_selects_date_range_among_multiple_current_semesters(self):
         selected_date = date(2026, 10, 28)

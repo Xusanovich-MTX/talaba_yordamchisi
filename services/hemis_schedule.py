@@ -92,7 +92,7 @@ def schedule_week_dates(
         current = current.replace(tzinfo=local_timezone)
     today = current.astimezone(local_timezone).date()
     monday = today - timedelta(days=today.weekday())
-    return [monday + timedelta(days=offset) for offset in range(7)]
+    return [monday + timedelta(days=offset) for offset in range(6)]
 
 
 def _week_for_date(

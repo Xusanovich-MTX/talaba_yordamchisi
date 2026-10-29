@@ -101,7 +101,7 @@ class ScheduleHandlerTests(unittest.IsolatedAsyncioTestCase):
         for text in ("Chorshanba, 28.10.2026", "Fizika &lt;1&gt;", "09:00–10:20", "Ali Valiyev", "305-xona", "Semestr &lt;7&gt;"):
             self.assertIn(text, reply)
         keyboard = callback.message.answer.await_args.kwargs["reply_markup"]
-        self.assertEqual(sum(len(row) for row in keyboard.inline_keyboard), 7)
+        self.assertEqual(sum(len(row) for row in keyboard.inline_keyboard), 8)
 
     async def test_refreshed_tokens_are_encrypted_and_saved_only_for_clicked_user(self):
         updated = {"access_token": "access-new", "refresh_token": "refresh-new"}
@@ -211,6 +211,25 @@ class ScheduleHandlerTests(unittest.IsolatedAsyncioTestCase):
         fetch.assert_not_awaited()
         self.assertIn("qayta kiring", self.reply_text(callback))
         self.assertNotIn("Birozdan keyin", self.reply_text(callback))
+
+
+
+    async def test_switch_hemis_week_updates_message_with_new_week_dates(self):
+        callback = self.callback(data="hemis_week:2026-11-02")
+        callback.message.edit_text = AsyncMock()
+        async with self.sessions() as session:
+            await schedule.switch_hemis_week(callback, session)
+        callback.answer.assert_awaited_once()
+        callback.message.edit_text.assert_awaited_once()
+        text = callback.message.edit_text.await_args.args[0]
+        self.assertIn("02.11.2026 — 07.11.2026", text)
+        keyboard = callback.message.edit_text.await_args.kwargs["reply_markup"]
+        buttons = [btn for row in keyboard.inline_keyboard for btn in row]
+        self.assertEqual(len(buttons), 8)
+        self.assertEqual(buttons[0].callback_data, "hemis_day:2026-11-02")
+        self.assertEqual(buttons[5].callback_data, "hemis_day:2026-11-07")
+        self.assertEqual(buttons[6].callback_data, "hemis_week:2026-10-26")
+        self.assertEqual(buttons[7].callback_data, "hemis_week:2026-11-09")
 
 
 if __name__ == "__main__":

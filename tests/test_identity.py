@@ -354,7 +354,7 @@ class IdentityTests(unittest.IsolatedAsyncioTestCase):
             await session.commit()
             message = self.message()
             state = AsyncMock()
-            days = [date(2026, 10, 26) + timedelta(days=offset) for offset in range(7)]
+            days = [date(2026, 10, 26) + timedelta(days=offset) for offset in range(6)]
             with (
                 patch(
                     "handlers.schedule.decrypt_hemis_session",
@@ -374,15 +374,20 @@ class IdentityTests(unittest.IsolatedAsyncioTestCase):
             state.clear.assert_awaited_once()
             keyboard = message.answer.await_args.kwargs["reply_markup"]
             buttons = [button for row in keyboard.inline_keyboard for button in row]
+            self.assertEqual(len(buttons), 8)
             self.assertEqual(
-                [button.callback_data for button in buttons],
+                [button.callback_data for button in buttons[:6]],
                 [f"hemis_day:{day.isoformat()}" for day in days],
             )
-            for button, name in zip(buttons, (
+            for button, name in zip(buttons[:6], (
                 "Dushanba", "Seshanba", "Chorshanba", "Payshanba",
-                "Juma", "Shanba", "Yakshanba",
+                "Juma", "Shanba",
             )):
                 self.assertIn(name, button.text)
+            self.assertEqual(buttons[6].text, "⬅️ Oldingi hafta")
+            self.assertEqual(buttons[6].callback_data, "hemis_week:2026-10-19")
+            self.assertEqual(buttons[7].text, "Keyingi hafta ➡️")
+            self.assertEqual(buttons[7].callback_data, "hemis_week:2026-11-02")
 
     async def test_channel_subscription_required_on_start_and_notifies_on_leave(self):
         from unittest.mock import patch

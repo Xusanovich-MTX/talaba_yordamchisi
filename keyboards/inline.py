@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -9,12 +9,30 @@ from services.hemis_schedule import WEEKDAY_NAMES
 
 def hemis_weekdays_kb(week_dates: list[date]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for day in week_dates:
+    active_days = [d for d in week_dates if d.weekday() != 6][:6]
+    for day in active_days:
         builder.button(
             text=f"{WEEKDAY_NAMES[day.weekday()]} · {day:%d.%m}",
             callback_data=f"hemis_day:{day.isoformat()}",
         )
     builder.adjust(2)
+
+    if active_days:
+        ref_day = active_days[0]
+        monday = ref_day - timedelta(days=ref_day.weekday())
+        prev_monday = monday - timedelta(days=7)
+        next_monday = monday + timedelta(days=7)
+        builder.row(
+            InlineKeyboardButton(
+                text="⬅️ Oldingi hafta",
+                callback_data=f"hemis_week:{prev_monday.isoformat()}",
+            ),
+            InlineKeyboardButton(
+                text="Keyingi hafta ➡️",
+                callback_data=f"hemis_week:{next_monday.isoformat()}",
+            ),
+        )
+
     return builder.as_markup()
 
 

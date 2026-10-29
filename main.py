@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import ctypes
 import logging
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import aiohttp
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.types import FSInputFile, InputProfilePhotoStatic
 
@@ -74,16 +76,30 @@ async def _start_health_server() -> web.AppRunner | None:
     return runner
 
 
+def keep_system_awake() -> None:
+    """Windows uyqu rejimiga va Wi-Fi uzilishiga tushmasligi uchun."""
+    if os.name == "nt":
+        try:
+            ctypes.windll.kernel32.SetThreadExecutionState(
+                0x80000000 | 0x00000001 | 0x00000002 | 0x00000040
+            )
+        except Exception:
+            pass
+
+
 async def main():
+    keep_system_awake()
     # Bazani ishga tushirish
     await init_db()
     logger.info("Ma'lumotlar bazasi tayyor.")
     await _start_health_server()
 
-    # Bot va Dispatcher
+    # Bot va Dispatcher (qisqa timeout Wi-Fi qotib qolishini oldini oladi)
+    session = AiohttpSession(timeout=12)
     bot = Bot(
         token=BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+        session=session,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     bot_info = await bot.get_me()
     if not bot_info.supports_inline_queries:
@@ -133,6 +149,7 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=False)
     await dp.start_polling(
         bot,
+        polling_timeout=5,
         allowed_updates=["message", "callback_query", "inline_query", "chat_member"],
     )
 
