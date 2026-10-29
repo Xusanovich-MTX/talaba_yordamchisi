@@ -36,6 +36,9 @@ class SettingsTests(unittest.IsolatedAsyncioTestCase):
         )
         message = SimpleNamespace(answer=AsyncMock())
         await start.help_handler(message)
+        help_text = message.answer.await_args.args[0]
+        self.assertIn("HEMIS tizimiga qanday ulaniladi?", help_text)
+        self.assertIn("HEMIS tizimiga kira olmasangiz nima qilish kerak?", help_text)
         await start.help_handler(message)
         self.assertEqual(
             handler_counts,

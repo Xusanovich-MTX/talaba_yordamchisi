@@ -35,6 +35,7 @@ jobs:
 
           repo = os.environ["GITHUB_REPOSITORY"]
           run_id = int(os.environ["GITHUB_RUN_ID"])
+          event_name = os.environ.get("GITHUB_EVENT_NAME", "")
           token = os.environ.get("GH_WORKFLOW_TOKEN") or os.environ.get("GITHUB_TOKEN")
 
           url = f"https://api.github.com/repos/{repo}/actions/workflows/bot_24_7.yml/runs?status=in_progress"
@@ -49,16 +50,34 @@ jobs:
                   data = json.loads(resp.read().decode())
               other_runs = [r for r in data.get("workflow_runs", []) if r["id"] != run_id]
               if other_runs:
-                  # Check age of other run
-                  started_str = other_runs[0].get("run_started_at") or other_runs[0].get("created_at")
-                  started_dt = datetime.fromisoformat(started_str.replace("Z", "+00:00"))
-                  age_min = (datetime.now(timezone.utc) - started_dt).total_seconds() / 60.0
-                  if age_min >= 322:
-                      print(f"Other run {other_runs[0]['id']} is rotating ({age_min:.1f}m old); waiting 20s for handoff...")
-                      time.sleep(20)
+                  if event_name == "push":
+                      for r in other_runs:
+                          print(f"New code pushed! Canceling previous active run {r['id']} for hot-reload...")
+                          creq = urllib.request.Request(
+                              f"https://api.github.com/repos/{repo}/actions/runs/{r['id']}/cancel",
+                              method="POST",
+                              headers={
+                                  "Authorization": f"Bearer {token}",
+                                  "Accept": "application/vnd.github+json",
+                                  "User-Agent": "talaba-bot-check"
+                              }
+                          )
+                          try:
+                              urllib.request.urlopen(creq, timeout=10)
+                          except Exception as ce:
+                              print("Cancel warning:", ce)
+                      print("Waiting 12s for previous run to save state and exit...")
+                      time.sleep(12)
                   else:
-                      print(f"Another instance (run {other_runs[0]['id']}, {age_min:.1f}m old) is already running. Skipping.")
-                      skip = "true"
+                      started_str = other_runs[0].get("run_started_at") or other_runs[0].get("created_at")
+                      started_dt = datetime.fromisoformat(started_str.replace("Z", "+00:00"))
+                      age_min = (datetime.now(timezone.utc) - started_dt).total_seconds() / 60.0
+                      if age_min >= 322:
+                          print(f"Other run {other_runs[0]['id']} is rotating ({age_min:.1f}m old); waiting 20s for handoff...")
+                          time.sleep(20)
+                      else:
+                          print(f"Another instance (run {other_runs[0]['id']}, {age_min:.1f}m old) is already running. Skipping.")
+                          skip = "true"
           except Exception as e:
               print("Check warning:", e)
 

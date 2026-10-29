@@ -695,20 +695,38 @@ async def show_telegram_id(message: Message):
     )
 
 
+@router.message(Command("help"))
 @router.message(F.text == "ℹ️ Yordam")
 async def help_handler(message: Message):
     await message.answer(
-        "📖 <b>Botdan foydalanish qo'llanmasi:</b>\n\n"
-        "📅 <b>Dars jadvali</b> - Hafta kunini tanlab, o'sha kun darslarini HEMIS'dan ko'ring.\n"
-        "📝 <b>Topshiriqlar</b> - HEMIS'dan yuklashga eng yaqin 3 ta topshiriqni olib beradi va muddati yaqinlashganda avtomatik eslatadi.\n"
-        "📊 <b>Davomat</b> - Qoldirilgan darslar (NB) hisoboti.\n"
-        "📈 <b>Baholar</b> - Fanlar bo'yicha kreditlar, ballar va baholangan ishlar.\n"
-        "🎯 <b>GPA ballar</b> - Semestr va yillik (kurslar bo'yicha) GPA ballari.\n"
-        "🎓 <b>Imtihonlar</b> - Oraliq va yakuniy nazorat imtihonlari jadvali.\n"
-        "📚 <b>Resurslar</b> - Fanlar bo'yicha ma'ruza va taqdimot fayllarini yuklab olish.\n"
-        "⚙️ <b>Sozlamalar</b> - Ertalabki (07:00) motivatsion xabar, dars (10, 5 daqiqa oldin va dars boshlanganda) hamda topshiriq (3 kun, 1 kun, 3 soat oldin) eslatmalarini boshqarish.\n\n"
-        "🆔 /id — raqamli Telegram ID'ingizni ko'rish.\n\n"
-        f"Savollar bo'lsa: @{escape(SUPPORT_USERNAME)}"
+        "📖 <b>Botdan foydalanish va HEMIS tizimiga ulanish qo'llanmasi</b>\n\n"
+        "🔐 <b>1. HEMIS tizimiga qanday ulaniladi?</b>\n"
+        "1️⃣ Asosiy menyudan <b>«🎓 HEMIS ulash»</b> tugmasini bosing.\n"
+        "2️⃣ <b>«🔎 Jonli qidirish»</b> tugmasini bosib OTM nomini yozing (masalan: <i>TATU, O'zMU, SamDU</i>) yoki OTM nomini oddiy xabar qilib yuboring va ro'yxatdan o'z oliygohingizni tanlang.\n"
+        "3️⃣ <b>HEMIS Login (Talaba ID)</b> raqamingizni yuboring (masalan: <code>395231101234</code> — 12 xonali talaba ID raqamingiz).\n"
+        "4️⃣ <b>HEMIS parolingizni</b> yuboring (xavfsizlik uchun parol yozilgan xabar darhol avtomatik o'chiriladi va shifrlanadi).\n\n"
+        "❓ <b>2. HEMIS tizimiga kira olmasangiz nima qilish kerak?</b>\n"
+        "🔹 <b>Login yoki parolni bilmasangiz / unutgan bo'lsangiz:</b>\n"
+        "• Odatda HEMIS login — bu <b>12 xonali Talaba ID</b> raqamingiz, boshlang'ich parol esa pasport/ID-karta <b>seriya va raqamingiz</b> (masalan: <code>AD1234567</code>) bo'ladi.\n"
+        "• Parolni unutgan bo'lsangiz, fakultetingiz <b>dekanati (tyutori)</b> yoki OTM <b>HEMIS administratoriga</b> murojaat qilib parolni tiklatishingiz mumkin.\n"
+        "🔹 <b>«Login yoki parol noto'g'ri» xatosi chiqsa:</b>\n"
+        "• Ro'yxatdan aynan o'zingiz o'qiydigan OTMni tanlaganingizni tekshiring.\n"
+        "• Paroldagi katta-kichik harflarga (<code>A</code> va <code>a</code>) hamda bo'sh joy (probel) qolib ketmasligiga e'tibor bering.\n"
+        "• Avval brauzer orqali OTMning rasmiy <code>student.hemis.uz</code> sahifasiga kirib, login-parolingiz ishlayotganini tekshirib ko'ring.\n"
+        "🔹 <b>HEMIS CAPTCHA yoki vaqtinchalik cheklov chiqsa:</b>\n"
+        "• Ko'p marta xato parol terilganda tizim vaqtincha cheklaydi. Rasmiy HEMIS saytiga brauzerdan bir marta kirib chiqing yoki 10–15 daqiqa kutib qayta urinib ko'ring.\n\n"
+        "🧭 <b>3. Botning asosiy bo'limlari:</b>\n"
+        "📅 <b>Dars jadvali</b> — Hafta kunlari bo'yicha darslar jadvali.\n"
+        "📝 <b>Topshiriqlar</b> — Muddati eng yaqin 3 ta topshiriq va avtomatik deadline eslatmalari.\n"
+        "📊 <b>Davomat</b> — Fanlar kesimida qoldirilgan soatlar, foiz (<b>%</b>) va <b>25% qizil chiziq</b> ogohlantirishi.\n"
+        "📈 <b>Baholar</b> — Fanlar bo'yicha kreditlar va to'plangan ballar.\n"
+        "🎯 <b>GPA ballar</b> — Semestr va yillik (kurslar bo'yicha) GPA ko'rsatkichlari.\n"
+        "🎓 <b>Imtihonlar</b> — Oraliq va yakuniy nazorat imtihonlari jadvali.\n"
+        "📚 <b>Resurslar</b> — Fanlar bo'yicha elektron ma'ruza va taqdimot fayllari.\n"
+        "⚙️ <b>Sozlamalar</b> — Dars va topshiriq eslatmalarini boshqarish hamda botni do'stlarga ulashish.\n"
+        "🚪 <b>Tizimdan chiqish</b> — Boshqa profilga ulanish uchun joriy HEMIS akkauntdan chiqish.\n\n"
+        "🆔 /id — raqamli Telegram ID'ingizni ko'rish.\n"
+        f"👨‍💻 Qo'shimcha yordam va murojaat uchun: @{escape(SUPPORT_USERNAME)}"
     )
 
 
