@@ -352,7 +352,7 @@ def format_attendance(
     semester_name: str = "",
     subjects: list[dict[str, Any]] | None = None,
 ) -> str:
-    lines = ["📊 <b>HEMIS: Umumiy davomat va fanlar foizi</b>"]
+    lines = ["📊 <b>HEMIS: Davomat (umumiy va fanlar foizi)</b>"]
     if semester_name:
         lines.append(escape(str(semester_name)))
     lines.append("")
