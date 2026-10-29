@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from database.models import Base, User
 from handlers import academic
 from services.hemis_extra import (
+    build_attendance_subjects,
     calculate_semester_gpas,
     format_attendance,
     format_exams,
@@ -24,6 +25,7 @@ from services.hemis_extra import (
     format_grades_overview,
     format_morning_motivation,
     format_semester_gpa_details,
+    format_subject_attendance_detail,
     format_subject_resources,
     format_today_summary,
 )
@@ -85,6 +87,30 @@ class AcademicFeaturesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("26.7%", text)
         self.assertIn("QIZIL CHIZIQ", text)
         self.assertIn("DIQQAT OGOHLANTIRISH", text)
+
+    def test_format_subject_attendance_detail_shows_missed_pct_and_remaining_to_red_zone(self):
+        records = [
+            {
+                "subject": {"name": "Dasturlash"},
+                "trainingType": {"name": "Amaliy"},
+                "lessonPair": {"start_time": "10:30", "end_time": "11:50"},
+                "employee": {"name": "KARIMOV A."},
+                "absent_on": 2,
+                "absent_off": 4,
+                "explicable": False,
+                "lesson_date": 1791936000,
+            }
+        ]
+        subjects = [{"subject": {"name": "Dasturlash"}, "auditorium_hours": 60}]
+        subject_stats = build_attendance_subjects(records, subjects)
+        self.assertEqual(len(subject_stats), 1)
+        detail_text = format_subject_attendance_detail(subject_stats[0], semester_name="7-semestr")
+        self.assertIn("Dasturlash", detail_text)
+        self.assertIn("6 soat", detail_text)
+        self.assertIn("10.0%", detail_text)
+        # 25% of 60h = 15h; 15h - 6h = 9 soat (4.5 para) remaining to red zone
+        self.assertIn("9 soat", detail_text)
+        self.assertIn("KARIMOV A.", detail_text)
 
     def test_format_grades_overview_includes_subject_credits_and_marked_tasks(self):
         subjects = [
@@ -301,6 +327,39 @@ class AcademicFeaturesTests(unittest.IsolatedAsyncioTestCase):
 
             msg.answer.assert_awaited_once()
             self.assertIn("Davomat", msg.answer.await_args.args[0])
+
+            # Fan ustiga bosganda o'sha fan bo'yicha alohida davomat tahlili chiqishi kerak
+            sample_rec = [
+                {
+                    "subject": {"name": "Dasturlash"},
+                    "absent_on": 0,
+                    "absent_off": 4,
+                    "explicable": False,
+                    "lesson_date": 1791936000,
+                }
+            ]
+            cb = SimpleNamespace(
+                data="hemis_att:0",
+                from_user=SimpleNamespace(id=900001),
+                answer=AsyncMock(),
+                message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+            )
+            with (
+                patch.object(academic, "decrypt_hemis_session", return_value=session_dict),
+                patch.object(
+                    academic,
+                    "fetch_attendance",
+                    new=AsyncMock(return_value=({"name": "7-semestr"}, sample_rec, session_dict)),
+                ),
+            ):
+                async with sessions() as session:
+                    await academic.show_subject_attendance_callback(cb, session)
+
+            cb.message.edit_text.assert_awaited_once()
+            edited_text = cb.message.edit_text.await_args.args[0]
+            self.assertIn("Dasturlash", edited_text)
+            self.assertIn("6.7%", edited_text)
+            self.assertIn("11 soat", edited_text)
         finally:
             await storage.close()
             await engine.dispose()

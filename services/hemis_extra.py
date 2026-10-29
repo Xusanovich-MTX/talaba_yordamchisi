@@ -164,39 +164,32 @@ def _fmt_hours(value: float) -> str:
     return f"{value:.1f}"
 
 
-def format_attendance(
+def build_attendance_subjects(
     records: list[dict[str, Any]],
-    timezone_name: str = "Asia/Tashkent",
-    *,
-    semester_name: str = "",
     subjects: list[dict[str, Any]] | None = None,
-) -> str:
+    timezone_name: str = "Asia/Tashkent",
+) -> list[dict[str, Any]]:
+    """Har bir fan bo'yicha davomat ko'rsatkichlari, foizi, qizil chiziqqacha qolgan soat/para va NB tarixini hisoblaydi."""
     local_timezone = _local_timezone(timezone_name)
-    lines = ["📊 <b>HEMIS: Davomat (NB va 25% qizil chiziq nazorati)</b>"]
-    if semester_name:
-        lines.append(escape(str(semester_name)))
-    lines.append("")
-
-    if not records:
-        lines.append("✅ Joriy semestrda qoldirilgan darslar (NB) yo'q! Barakalla! (0%)")
-        return "\n".join(lines)
-
     subject_hours_map: dict[str, int] = {}
+    ordered_names: list[str] = []
+
     for item in subjects or []:
         if not isinstance(item, dict):
             continue
         subj_info = item.get("subject") or {}
-        sname = str(subj_info.get("name") or "").strip().casefold()
-        if not sname:
+        raw_name = str(subj_info.get("name") or "").strip()
+        if not raw_name:
             continue
+        sname = raw_name.casefold()
         aud = int(item.get("auditorium_hours") or 0)
         if aud <= 0:
             acload = int(item.get("total_acload") or 0)
             aud = (acload // 2) if acload >= 60 else (acload if acload > 0 else 60)
         subject_hours_map[sname] = aud
+        if raw_name not in ordered_names:
+            ordered_names.append(raw_name)
 
-    total_excused = 0
-    total_unexcused = 0
     per_subject: dict[str, dict[str, Any]] = {}
     sorted_records = sorted(
         records,
@@ -204,8 +197,7 @@ def format_attendance(
         reverse=True,
     )
 
-    item_lines = []
-    for idx, rec in enumerate(sorted_records, 1):
+    for rec in sorted_records:
         absent_on = int(rec.get("absent_on") or 0)
         absent_off = int(rec.get("absent_off") or 0)
         explicable = bool(rec.get("explicable"))
@@ -213,100 +205,205 @@ def format_attendance(
         if hours == 0:
             hours = 2
         is_excused = absent_on > 0 or explicable
-        if is_excused:
-            total_excused += hours
-            badge = "🟢 Sababli"
-        else:
-            total_unexcused += hours
-            badge = "🔴 Sababsiz"
+        badge = "🟢 Sababli" if is_excused else "🔴 Sababsiz"
 
-        subject = str((rec.get("subject") or {}).get("name") or "Noma'lum fan")
-        entry = per_subject.setdefault(
-            subject,
-            {
+        subject = str((rec.get("subject") or {}).get("name") or "Noma'lum fan").strip()
+        key = subject.casefold()
+        entry = per_subject.get(key)
+        if entry is None:
+            entry = {
+                "name": subject,
                 "excused": 0,
                 "unexcused": 0,
                 "total": 0,
                 "aud_hours": _resolve_subject_auditorium_hours(
                     subject, subject_hours_map, rec
                 ),
-            },
-        )
+                "items": [],
+            }
+            per_subject[key] = entry
+
         entry["total"] += hours
         if is_excused:
             entry["excused"] += hours
         else:
             entry["unexcused"] += hours
 
-        training = (rec.get("trainingType") or {}).get("name") or ""
-        employee = (rec.get("employee") or {}).get("name") or ""
+        training = str((rec.get("trainingType") or {}).get("name") or "")
+        employee = str((rec.get("employee") or {}).get("name") or "")
         pair = rec.get("lessonPair") or {}
         start_t = str(pair.get("start_time") or "")
         end_t = str(pair.get("end_time") or "")
         time_str = f"{start_t}–{end_t}" if start_t and end_t else start_t
-
         date_val = _local_date(rec.get("lesson_date"), local_timezone)
         date_str = date_val.strftime("%d.%m.%Y") if date_val else "Noma'lum sana"
 
-        meta = [f"<b>{hours} soat</b> ({badge})"]
-        if training:
-            meta.append(escape(str(training)))
-        if time_str:
-            meta.append(escape(time_str))
+        entry["items"].append({
+            "date_str": date_str,
+            "hours": hours,
+            "badge": badge,
+            "training": training,
+            "time_str": time_str,
+            "employee": employee,
+        })
 
-        row_text = (
-            f"<b>{idx}. 📚 {escape(subject)}</b>\n"
-            f"📅 {date_str} | {' | '.join(meta)}"
-        )
-        if employee:
-            row_text += f"\n👨‍🏫 {escape(str(employee))}"
-        item_lines.append(row_text)
+    # Semestrdagi qolgan (NB yo'q) fanlarni ham ro'yxatga qo'shish
+    for raw_name in ordered_names:
+        key = raw_name.casefold()
+        if key not in per_subject:
+            per_subject[key] = {
+                "name": raw_name,
+                "excused": 0,
+                "unexcused": 0,
+                "total": 0,
+                "aud_hours": subject_hours_map.get(key, 60),
+                "items": [],
+            }
 
-    total_all = total_excused + total_unexcused
-    lines.append(
-        f"📌 <b>Jami qoldirilgan:</b> {total_all} soat "
-        f"(🔴 Sababsiz: <b>{total_unexcused} soat</b> | 🟢 Sababli: <b>{total_excused} soat</b>)"
-    )
-    lines.append(
-        "⚠️ <i>Qoida: Fan bo'yicha davomat <b>25%</b> ga yetsa, talaba qizil chiziqqa tushadi (yakuniy nazoratdan chetlatiladi).</i>"
-    )
-    lines.append("")
-    lines.append("📊 <b>Fanlar kesimida davomat foizi:</b>")
-
-    red_subjects: list[str] = []
-    for s_idx, (subj_name, stats) in enumerate(per_subject.items(), 1):
-        aud_h = max(int(stats["aud_hours"]), 1)
-        tot_h = int(stats["total"])
-        unex_h = int(stats["unexcused"])
-        exc_h = int(stats["excused"])
+    result_list: list[dict[str, Any]] = []
+    for entry in per_subject.values():
+        aud_h = max(int(entry["aud_hours"]), 1)
+        tot_h = int(entry["total"])
         pct = round((tot_h / aud_h) * 100, 1)
         limit_h = aud_h * 0.25
         remaining_h = max(0.0, limit_h - tot_h)
+        entry["pct"] = pct
+        entry["limit_hours"] = limit_h
+        entry["remaining_hours"] = remaining_h
+        entry["missed_pairs"] = round(tot_h / 2, 1)
+        entry["remaining_pairs"] = int(remaining_h // 2)
+        result_list.append(entry)
+
+    return result_list
+
+
+def format_subject_attendance_detail(
+    subj_stat: dict[str, Any],
+    *,
+    semester_name: str = "",
+) -> str:
+    """Tanlangan bitta fan bo'yicha to'liq davomat tahlili va qizil chiziq hisoboti."""
+    subj_name = str(subj_stat.get("name") or "Fan")
+    aud_h = max(int(subj_stat.get("aud_hours") or 60), 1)
+    tot_h = int(subj_stat.get("total") or 0)
+    unex_h = int(subj_stat.get("unexcused") or 0)
+    exc_h = int(subj_stat.get("excused") or 0)
+    pct = float(subj_stat.get("pct") or round((tot_h / aud_h) * 100, 1))
+    limit_h = float(subj_stat.get("limit_hours") or (aud_h * 0.25))
+    remaining_h = max(0.0, limit_h - tot_h)
+    missed_pairs = _fmt_hours(tot_h / 2)
+    rem_pairs = _fmt_hours(remaining_h / 2)
+    limit_pairs = _fmt_hours(limit_h / 2)
+
+    lines = [f"📚 <b>{escape(subj_name)}</b> — Davomat tahlili"]
+    if semester_name:
+        lines.append(f"🎓 {escape(str(semester_name))}")
+    lines.append("")
+
+    lines.append(f"⏱ <b>Jami auditoriya soati:</b> {aud_h} soat ({_fmt_hours(aud_h / 2)} para)")
+    lines.append(
+        f"❌ <b>Qoldirilgan darslar:</b> <b>{tot_h} soat</b> ({missed_pairs} para)\n"
+        f"   • 🔴 Sababsiz: <b>{unex_h} soat</b>\n"
+        f"   • 🟢 Sababli: <b>{exc_h} soat</b>"
+    )
+    lines.append(f"📊 <b>Joriy davomat foizi:</b> <b>{pct}%</b> (Qizil chiziq chegarasi: <b>25%</b> = {_fmt_hours(limit_h)} soat / {limit_pairs} para)")
+    lines.append("")
+
+    if pct >= 25.0:
+        lines.append(
+            f"🚨 <b>HOLAT: QIZIL CHIZIQ ({pct}% >= 25%)!</b>\n"
+            "Siz ushbu fandan 25% lik chegaradan oshib ketgansiz! Yakuniy nazoratdan chetlatilish (qizilga tushish) xavfi mavjud."
+        )
+    elif pct >= 20.0:
+        lines.append(
+            f"⚠️ <b>HOLAT: Xavfli chegara ({pct}%)!</b>\n"
+            f"🚨 <b>Qizil chiziqqa tushishga atigi {_fmt_hours(remaining_h)} soat ({rem_pairs} para) dars qoldi!</b> Boshqa dars qoldirmang!"
+        )
+    else:
+        lines.append(
+            f"🟢 <b>HOLAT: Me'yorda ({pct}%)</b>\n"
+            f"📌 <b>25% qizil chiziqqa tushishgacha yana {_fmt_hours(remaining_h)} soat ({rem_pairs} para) dars bor.</b>"
+        )
+
+    items = subj_stat.get("items") or []
+    lines.append("")
+    if not items:
+        lines.append("✅ <b>Ushbu fandan birorta ham dars qoldirilmagan! Barakalla!</b>")
+    else:
+        lines.append(f"📋 <b>Qoldirilgan darslar tarixi ({len(items)} ta):</b>")
+        for idx, it in enumerate(items, 1):
+            meta = [f"<b>{it['hours']} soat</b> ({it['badge']})"]
+            if it.get("training"):
+                meta.append(escape(it["training"]))
+            if it.get("time_str"):
+                meta.append(escape(it["time_str"]))
+            row = f"{idx}. 📅 {it['date_str']} | {' | '.join(meta)}"
+            if it.get("employee"):
+                row += f"\n   👨‍🏫 {escape(it['employee'])}"
+            lines.append(row)
+
+    return "\n".join(lines)
+
+
+def format_attendance(
+    records: list[dict[str, Any]],
+    timezone_name: str = "Asia/Tashkent",
+    *,
+    semester_name: str = "",
+    subjects: list[dict[str, Any]] | None = None,
+) -> str:
+    lines = ["📊 <b>HEMIS: Umumiy davomat va fanlar foizi</b>"]
+    if semester_name:
+        lines.append(escape(str(semester_name)))
+    lines.append("")
+
+    subject_stats = build_attendance_subjects(records, subjects, timezone_name)
+    if not records and not subject_stats:
+        lines.append("✅ Joriy semestrda qoldirilgan darslar (NB) yo'q! Barakalla! (0%)")
+        return "\n".join(lines)
+
+    total_excused = sum(int(s["excused"]) for s in subject_stats)
+    total_unexcused = sum(int(s["unexcused"]) for s in subject_stats)
+    total_all = total_excused + total_unexcused
+    total_aud = sum(max(int(s["aud_hours"]), 1) for s in subject_stats) or 60
+    overall_pct = round((total_all / total_aud) * 100, 1) if total_all > 0 else 0.0
+
+    if not records:
+        lines.append("✅ Joriy semestrda qoldirilgan darslar (NB) yo'q! Barakalla! (0%)")
+        lines.append("")
+        lines.append("👇 <i>Har bir fan bo'yicha me'yor va 25% qizil chiziq hisobini ko'rish uchun quyidagi fanni tanlang:</i>")
+        return "\n".join(lines)
+
+    lines.append(
+        f"📌 <b>Jami qoldirilgan:</b> {total_all} soat ({_fmt_hours(total_all / 2)} para) — <b>{overall_pct}%</b>\n"
+        f"   • 🔴 Sababsiz: <b>{total_unexcused} soat</b> | 🟢 Sababli: <b>{total_excused} soat</b>"
+    )
+    lines.append(
+        "⚠️ <i>Qoida: Fan bo'yicha davomat <b>25%</b> ga yetsa, talaba qizil chiziqqa tushadi.</i>"
+    )
+    lines.append("")
+    lines.append("📊 <b>Fanlar bo'yicha qisqacha holat:</b>")
+
+    red_subjects: list[str] = []
+    for s_idx, stats in enumerate(subject_stats, 1):
+        subj_name = stats["name"]
+        aud_h = max(int(stats["aud_hours"]), 1)
+        tot_h = int(stats["total"])
+        pct = float(stats["pct"])
+        remaining_h = float(stats["remaining_hours"])
 
         if pct >= 25.0:
             red_subjects.append(subj_name)
-            status_line = (
-                f"🚨 <b>QIZIL CHIZIQ ({pct}% >= 25%)!</b> "
-                "25% lik chegaradan oshdi — fandan qizilga tushish (chetlatilish) xavfi!"
-            )
-            pct_badge = f"🔴 <b>{pct}%</b>"
+            pct_badge = f"🔴 <b>{pct}%</b> (🚨 QIZIL CHIZIQ)"
         elif pct >= 20.0:
-            status_line = (
-                f"⚠️ <b>Xavfli chegara ({pct}%)!</b> "
-                f"25% qizil chiziqqa tushishga atigi <b>{_fmt_hours(remaining_h)} soat</b> qoldi!"
-            )
-            pct_badge = f"🟡 <b>{pct}%</b>"
+            pct_badge = f"🟡 <b>{pct}%</b> (⚠️ qizilgacha {_fmt_hours(remaining_h)} s)"
+        elif tot_h > 0:
+            pct_badge = f"🟢 <b>{pct}%</b> (qizilgacha {_fmt_hours(remaining_h)} s)"
         else:
-            status_line = (
-                f"🟢 Me'yorda (25% qizil chiziqqacha yana <b>{_fmt_hours(remaining_h)} soat</b> bor)"
-            )
-            pct_badge = f"🟢 <b>{pct}%</b>"
+            pct_badge = "🟢 <b>0%</b>"
 
         lines.append(
-            f"<b>{s_idx}. 📚 {escape(subj_name)}</b> — {pct_badge}\n"
-            f"   • Qoldirildi: <b>{tot_h} / {aud_h} soat</b> "
-            f"(🔴 Sababsiz: {unex_h} s | 🟢 Sababli: {exc_h} s)\n"
-            f"   • Holat: {status_line}"
+            f"<b>{s_idx}. 📚 {escape(subj_name)}</b> — {tot_h}/{aud_h} soat ({pct_badge})"
         )
 
     if red_subjects:
@@ -318,8 +415,9 @@ def format_attendance(
         )
 
     lines.append("")
-    lines.append("📋 <b>Batafsil NB lar tarixi:</b>")
-    lines.append("\n\n".join(item_lines))
+    lines.append(
+        "👇 <b>Fan ustiga bosing</b> — o'sha fandan qancha dars qoldirilgani, necha foiz bo'lgani va necha darsdan keyin qizilga tushishini alohida ko'rasiz:"
+    )
     return "\n".join(lines)
 
 

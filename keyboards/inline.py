@@ -85,6 +85,42 @@ def gpa_semesters_kb(
     return builder.as_markup()
 
 
+def attendance_subjects_kb(
+    subject_stats: list[dict[str, Any]],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for idx, stats in enumerate(subject_stats):
+        name = str(stats.get("name") or "Fan")
+        tot_h = int(stats.get("total") or 0)
+        pct = float(stats.get("pct") or 0.0)
+        if pct >= 25.0:
+            icon = "🔴"
+        elif pct >= 20.0:
+            icon = "🟡"
+        else:
+            icon = "🟢"
+        label = f"{icon} {name[:36]} — {tot_h} s ({pct}%)"
+        builder.button(
+            text=label,
+            callback_data=f"hemis_att:{idx}",
+        )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def attendance_detail_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔙 Barcha fanlar davomatiga qaytish",
+                    callback_data="hemis_att_back",
+                )
+            ]
+        ]
+    )
+
+
 def task_actions_kb(task_id: int, is_completed: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if not is_completed:

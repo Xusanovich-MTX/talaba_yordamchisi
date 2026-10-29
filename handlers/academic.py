@@ -10,9 +10,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import User
 from handlers.schedule import _hemis_connection_error, _split_telegram_text
-from keyboards.inline import gpa_semesters_kb, resource_pages_kb, resource_subjects_kb
+from keyboards.inline import (
+    attendance_detail_kb,
+    attendance_subjects_kb,
+    gpa_semesters_kb,
+    resource_pages_kb,
+    resource_subjects_kb,
+)
 from keyboards.reply import main_menu_kb
 from services.hemis_extra import (
+    build_attendance_subjects,
     calculate_semester_gpas,
     fetch_attendance,
     fetch_exams,
@@ -25,6 +32,7 @@ from services.hemis_extra import (
     format_gpa_report,
     format_grades_overview,
     format_semester_gpa_details,
+    format_subject_attendance_detail,
     format_subject_resources,
 )
 from services.hemis_schedule import HemisScheduleError, HemisSessionExpired
@@ -125,13 +133,119 @@ async def show_attendance(
         )
         return
 
+    subjects = semester.get("_subjects")
+    subject_stats = build_attendance_subjects(records, subjects, user.timezone)
     text = format_attendance(
         records,
         user.timezone,
         semester_name=str(semester.get("name") or ""),
-        subjects=semester.get("_subjects"),
+        subjects=subjects,
     )
-    await _send_chunks(message, text, reply_markup=main_menu_kb(user))
+    markup = attendance_subjects_kb(subject_stats) if subject_stats else main_menu_kb(user)
+    await _send_chunks(message, text, reply_markup=markup)
+
+
+@router.callback_query(F.data.startswith("hemis_att:"))
+async def show_subject_attendance_callback(
+    callback: CallbackQuery, session: AsyncSession
+):
+    _, _, idx_str = (callback.data or "").partition(":")
+    if not idx_str.isdecimal():
+        await callback.answer("Fan topilmadi.", show_alert=True)
+        return
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        await callback.answer("Davomat bo'limini qayta oching.", show_alert=True)
+        return
+
+    user, session_data = await _get_connected_user_and_session(
+        callback.from_user.id, session, callback, is_callback=True
+    )
+    if not user or not session_data:
+        return
+
+    await callback.answer("Fan davomati yuklanmoqda…")
+    try:
+        semester, records, updated_session = await fetch_attendance(
+            user.hemis_api_url, session_data, user.timezone
+        )
+        await _save_updated_session(session, user, session_data, updated_session)
+    except HemisSessionExpired:
+        user.hemis_session_ciphertext = None
+        await session.commit()
+        await callback.message.answer(
+            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
+            reply_markup=main_menu_kb(),
+        )
+        return
+    except HemisScheduleError:
+        await callback.message.answer(
+            "HEMIS davomat ma'lumotlarini hozir olib bo'lmadi. Birozdan keyin qayta urinib ko'ring."
+        )
+        return
+
+    subject_stats = build_attendance_subjects(
+        records, semester.get("_subjects"), user.timezone
+    )
+    idx = int(idx_str)
+    if idx < 0 or idx >= len(subject_stats):
+        await callback.message.answer("Tanlangan fan topilmadi.")
+        return
+
+    text = format_subject_attendance_detail(
+        subject_stats[idx],
+        semester_name=str(semester.get("name") or ""),
+    )
+    kb = attendance_detail_kb()
+    try:
+        await callback.message.edit_text(
+            text, reply_markup=kb, disable_web_page_preview=True
+        )
+    except Exception:
+        await _send_chunks(callback.message, text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "hemis_att_back")
+async def back_to_attendance_overview(
+    callback: CallbackQuery, session: AsyncSession
+):
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        await callback.answer("Davomat bo'limini qayta oching.", show_alert=True)
+        return
+
+    user, session_data = await _get_connected_user_and_session(
+        callback.from_user.id, session, callback, is_callback=True
+    )
+    if not user or not session_data:
+        return
+
+    await callback.answer("Umumiy davomat yuklanmoqda…")
+    try:
+        semester, records, updated_session = await fetch_attendance(
+            user.hemis_api_url, session_data, user.timezone
+        )
+        await _save_updated_session(session, user, session_data, updated_session)
+    except (HemisScheduleError, HemisSessionExpired):
+        await callback.message.answer(
+            "Davomat ma'lumotlarini hozir olib bo'lmadi. 📊 Davomat tugmasini qayta bosing.",
+            reply_markup=main_menu_kb(),
+        )
+        return
+
+    subjects = semester.get("_subjects")
+    subject_stats = build_attendance_subjects(records, subjects, user.timezone)
+    text = format_attendance(
+        records,
+        user.timezone,
+        semester_name=str(semester.get("name") or ""),
+        subjects=subjects,
+    )
+    kb = attendance_subjects_kb(subject_stats) if subject_stats else None
+    try:
+        await callback.message.edit_text(
+            text, reply_markup=kb, disable_web_page_preview=True
+        )
+    except Exception:
+        await _send_chunks(callback.message, text, reply_markup=kb)
 
 
 # --- 3. BAHOLAR VA O'ZLASHTIRISH (GRADES) ---
