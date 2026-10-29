@@ -1,0 +1,88 @@
+name: Talaba Bot 24/7 Cloud Runner
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '*/30 * * * *'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      TZ: Asia/Tashkent
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      HEMIS_SESSION_KEY: ${{ secrets.HEMIS_SESSION_KEY }}
+      REQUIRED_CHANNEL: "@oliy_talim_live"
+      REQUIRED_CHANNEL_URL: "https://t.me/oliy_talim_live"
+      GH_WORKFLOW_TOKEN: ${{ secrets.GH_WORKFLOW_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Check active instance
+        id: check_active
+        run: |
+          python3 - << 'EOF'
+          import json, os, time, urllib.request
+          from datetime import datetime, timezone
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          run_id = int(os.environ["GITHUB_RUN_ID"])
+          token = os.environ.get("GH_WORKFLOW_TOKEN") or os.environ.get("GITHUB_TOKEN")
+
+          url = f"https://api.github.com/repos/{repo}/actions/workflows/bot_24_7.yml/runs?status=in_progress"
+          req = urllib.request.Request(url, headers={
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "User-Agent": "talaba-bot-check"
+          })
+          skip = "false"
+          try:
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  data = json.loads(resp.read().decode())
+              other_runs = [r for r in data.get("workflow_runs", []) if r["id"] != run_id]
+              if other_runs:
+                  # Check age of other run
+                  started_str = other_runs[0].get("run_started_at") or other_runs[0].get("created_at")
+                  started_dt = datetime.fromisoformat(started_str.replace("Z", "+00:00"))
+                  age_min = (datetime.now(timezone.utc) - started_dt).total_seconds() / 60.0
+                  if age_min >= 322:
+                      print(f"Other run {other_runs[0]['id']} is rotating ({age_min:.1f}m old); waiting 20s for handoff...")
+                      time.sleep(20)
+                  else:
+                      print(f"Another instance (run {other_runs[0]['id']}, {age_min:.1f}m old) is already running. Skipping.")
+                      skip = "true"
+          except Exception as e:
+              print("Check warning:", e)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"skip={skip}\n")
+          EOF
+
+      - name: Checkout repository
+        if: steps.check_active.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_WORKFLOW_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        if: steps.check_active.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        if: steps.check_active.outputs.skip != 'true'
+        run: pip install -r requirements.txt
+
+      - name: Run Talaba Bot 24/7
+        if: steps.check_active.outputs.skip != 'true'
+        run: python runtime/cloud_runner.py

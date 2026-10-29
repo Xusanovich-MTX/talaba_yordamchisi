@@ -19,8 +19,8 @@ ADMIN_IDS: set[int] = {
 }
 DB_URL = os.getenv("DB_URL") or "sqlite+aiosqlite:///talaba_bot.db"
 HEMIS_SESSION_KEY = os.getenv("HEMIS_SESSION_KEY")
-REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "").strip()
-REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "").strip()
+REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@oliy_talim_live").strip()
+REQUIRED_CHANNEL_URL = os.getenv("REQUIRED_CHANNEL_URL", "https://t.me/oliy_talim_live").strip()
 
 # Nisbiy SQLite yo'li ishga tushirish papkasiga bog'liq bo'lmasligi kerak.
 db_url = make_url(DB_URL)
