@@ -134,6 +134,15 @@ class SettingsTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("url=https", start.BOT_SHARE_URL)
         self.assertIn("assistant_n1_bot", start.BOT_SHARE_URL)
 
+    async def test_legacy_share_invite_callback_redirects_via_answer_url(self):
+        callback = SimpleNamespace(
+            message=SimpleNamespace(answer=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        await start.share_invite(callback)
+        callback.answer.assert_awaited_once_with(url=start.BOT_SHARE_URL)
+        callback.message.answer.assert_not_awaited()
+
 
 if __name__ == "__main__":
     unittest.main()

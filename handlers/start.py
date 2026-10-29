@@ -741,27 +741,7 @@ async def settings_handler(message: Message, session: AsyncSession):
 
 @router.callback_query(F.data == "share_invite")
 async def share_invite(callback: CallbackQuery):
-    await callback.answer()
-    share_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🤖 Botga ulanish", url=BOT_LINK),
-            InlineKeyboardButton(text="📤 Ulashish", url=BOT_SHARE_URL),
-        ]
-    ])
-    share_text = (
-        "🚀 <b>HEMIS’ga har safar login-parol terib kirishdan charchadingizmi?</b>\n\n"
-        "🎓 <b>«Talaba Yordamchisi»</b> — har bir talabada bo'lishi shart bo'lgan shaxsiy HEMIS bot!\n\n"
-        "⏰ Para boshlanishidan 10, 5 daqiqa oldin va dars boshlanganda avto-eslatma\n"
-        "🔥 Topshiriq (deadline) muddati tugashidan oldin ogohlantirish\n"
-        "📊 Dars jadvali, Davomat (NB), Baholar, Semestr/Yillik GPA va Fan resurslari — hammasi bitta joyda!\n\n"
-        "👇 <b>Hoziroq do'stlaringizga ulashing yoki quyidagi tugma orqali botga kiring:</b>"
-    )
-    if callback.message:
-        await callback.message.answer(
-            share_text,
-            reply_markup=share_kb,
-            disable_web_page_preview=True,
-        )
+    await callback.answer(url=BOT_SHARE_URL)
 
 
 async def _toggle_notification(
