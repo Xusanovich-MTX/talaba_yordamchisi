@@ -337,3 +337,22 @@ def task_upload_cancel_kb() -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+def task_upload_confirm_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Ha, HEMIS ga yuklansin",
+                    callback_data="hemis_upload_confirm",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❌ Bekor qilish",
+                    callback_data="hemis_upload_cancel",
+                )
+            ],
+        ]
+    )
+

@@ -426,13 +426,27 @@ class HemisTasksTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Fayl hajmi juda katta", large_msg.answer.await_args.args[0])
             self.assertEqual(await state.get_state(), tasks_handler.UploadHemisTask.waiting_for_file.state)
 
-            # 4. Upload valid PDF file
+            # 4. Receive valid PDF file -> should transition to confirm_upload state
             doc_msg = SimpleNamespace(
                 from_user=SimpleNamespace(id=900002),
                 document=SimpleNamespace(file_size=1024, file_name="lab1.pdf"),
                 caption=None,
                 bot=SimpleNamespace(download=AsyncMock()),
-                answer=AsyncMock(return_value=SimpleNamespace(edit_text=AsyncMock())),
+                answer=AsyncMock(),
+            )
+
+            async with sessions() as session:
+                await tasks_handler.handle_task_upload_document(doc_msg, state, session)
+
+            self.assertEqual(await state.get_state(), tasks_handler.UploadHemisTask.confirm_upload.state)
+            self.assertIn("tasdiqlaysizmi", doc_msg.answer.await_args.args[0])
+
+            # 5. Confirm upload -> uploads to HEMIS and clears state
+            confirm_cb = SimpleNamespace(
+                data="hemis_upload_confirm",
+                from_user=SimpleNamespace(id=900002),
+                answer=AsyncMock(),
+                message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
             )
 
             with (
@@ -444,9 +458,10 @@ class HemisTasksTests(unittest.IsolatedAsyncioTestCase):
                 ),
             ):
                 async with sessions() as session:
-                    await tasks_handler.handle_task_upload_document(doc_msg, state, session)
+                    await tasks_handler.confirm_task_upload_callback(confirm_cb, state, session)
 
             self.assertIsNone(await state.get_state())
+            confirm_cb.message.answer.assert_awaited_once()
         finally:
             await storage.close()
             await engine.dispose()
