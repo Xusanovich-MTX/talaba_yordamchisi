@@ -613,11 +613,14 @@ async def receive_hemis_password(
         await session.commit()
     except HemisLoginError as error:
         if error.reason == "invalid_credentials":
-            reply = "HEMIS login yoki parol noto'g'ri. Qaytadan ulanishni boshlang."
+            reply = "❌ HEMIS login yoki parol noto'g'ri. Qaytadan ulanishni boshlang."
+        elif error.reason == "login_blocked":
+            sec = error.retry_after or 60
+            reply = f"⏳ HEMIS: Ushbu login uchun parol bir necha bor noto'g'ri kiritilgani sabab tizim vaqtincha cheklov qo'ydi.\n\nIltimos, <b>{sec} soniya</b> kuting va to'g'ri parol bilan qayta urinib ko'ring."
         elif error.reason == "captcha":
-            reply = "HEMIS CAPTCHA talab qildi. Xavfsizlik tekshiruvini chetlab o'tmaymiz; rasmiy HEMIS saytida kiring."
+            reply = "⚠️ HEMIS tizimi vaqtincha tekshiruv so'ramoqda. 1-2 daqiqadan so'ng qayta urinib ko'ring."
         elif error.reason == "rate_limited":
-            reply = "HEMIS ko'p urinish sabab vaqtincha chekladi. Birozdan keyin qayta urinib ko'ring."
+            reply = "⏳ HEMIS ko'p urinish sababli vaqtincha chekladi. 1 daqiqa kuting va qayta urinib ko'ring."
         else:
             reply = "HEMIS hozir javob bermadi. Birozdan keyin qayta urinib ko'ring."
         await message.answer(reply, reply_markup=main_menu_kb())
