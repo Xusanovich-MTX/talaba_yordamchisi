@@ -17,6 +17,7 @@ from keyboards.inline import (
     task_actions_kb,
     task_subject_detail_kb,
     task_subjects_kb,
+    task_upload_cancel_kb,
 )
 from services.hemis_extra import fetch_grades_overview
 from services.hemis_schedule import HemisScheduleError, HemisSessionExpired
@@ -441,7 +442,6 @@ async def delete_task(callback: CallbackQuery, session: AsyncSession):
             await callback.message.edit_text("🗑 Topshiriq o'chirildi.")
 
 
-
 # --- HEMIS Topshiriq yuklash / topshirish ---
 @router.callback_query(F.data.startswith("hemis_task_up:"))
 async def ask_task_upload_file(
@@ -464,7 +464,7 @@ async def ask_task_upload_file(
         await callback.answer("Avval HEMIS tizimiga kiring.", show_alert=True)
         return
 
-    await callback.answer("Topshiriq ma'lumotlari yuklanmoqda?")
+    await callback.answer("Topshiriq ma'lumotlari yuklanmoqda…")
     try:
         session_data = decrypt_hemis_session(user.hemis_session_ciphertext)
         task_info, updated_session = await fetch_task_detail(
@@ -477,14 +477,14 @@ async def ask_task_upload_file(
         user.hemis_session_ciphertext = None
         await session.commit()
         await callback.message.answer(
-            "HEMIS sessiyasi tugagan. ?? HEMIS ulash bo'limidan qayta kiring.",
+            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
             reply_markup=main_menu_kb(),
         )
         return
     except HemisScheduleError as error:
         logger.warning("HEMIS task detail error: %s", error)
         await callback.message.answer(
-            f"? Topshiriq ma'lumotlarini olib bo'lmadi: {error}",
+            f"❌ Topshiriq ma'lumotlarini olib bo'lmadi: {error}",
             reply_markup=main_menu_kb(user),
         )
         return
@@ -511,32 +511,65 @@ async def ask_task_upload_file(
     )
 
     info_lines = [
-        "?? <b>Topshiriqni HEMIS tizimiga yuklash</b>",
+        "📤 <b>Topshiriqni HEMIS tizimiga yuklash</b>",
         "",
-        f"?? <b>Fan:</b> {escape(subject_name)}",
-        f"?? <b>Topshiriq:</b> {escape(task_name)}",
+        f"📚 <b>Fan:</b> {escape(subject_name)}",
+        f"📌 <b>Topshiriq:</b> {escape(task_name)}",
     ]
     if max_ball is not None:
-        info_lines.append(f"?? <b>Maksimal ball:</b> {escape(str(max_ball))}")
+        info_lines.append(f"🎯 <b>Maksimal ball:</b> {escape(str(max_ball))}")
     if attempt_limit is not None:
-        info_lines.append(f"?? <b>Urinishlar soni:</b> {escape(str(attempt_count))}/{escape(str(attempt_limit))}")
+        info_lines.append(f"🔄 <b>Urinishlar soni:</b> {escape(str(attempt_count))}/{escape(str(attempt_limit))}")
 
     info_lines.extend([
         "",
-        "?? <b>Topshiriq yechimi faylini botga yuboring:</b>",
+        "📎 <b>Topshiriq yechimi faylini botga yuboring:</b>",
         "(PDF, Word .docx/.doc, ZIP, PPTX va h.k.)",
         "",
-        "<i>Bekor qilish uchun ? Bekor qilish tugmasini bosing.</i>",
+        "<i>Bekor qilish uchun pastdagi ❌ Bekor qilish tugmasini bosing.</i>",
     ])
 
+    # Send both inline button and cancel_kb reply keyboard to be 100% accessible
     await callback.message.answer(
         "\n".join(info_lines),
         reply_markup=cancel_kb(),
     )
 
 
-@router.message(UploadHemisTask.waiting_for_file, F.text.in_({"? Bekor qilish", "/cancel"}))
-async def cancel_task_upload(message: Message, state: FSMContext, session: AsyncSession):
+# --- Bekor qilish (Callback va Message) ---
+@router.callback_query(UploadHemisTask.waiting_for_file, F.data == "hemis_upload_cancel")
+@router.callback_query(F.data == "hemis_upload_cancel")
+async def cancel_task_upload_callback(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+):
+    user = await session.scalar(
+        select(User).where(User.telegram_id == callback.from_user.id)
+    )
+    await state.clear()
+    await callback.answer("Bekor qilindi.")
+    try:
+        await callback.message.edit_text("Topshiriq yuklash bekor qilindi.")
+    except Exception:
+        pass
+    await callback.message.answer(
+        "Bosh menyudasiz:",
+        reply_markup=main_menu_kb(user),
+    )
+
+
+@router.message(
+    UploadHemisTask.waiting_for_file,
+    F.text.func(
+        lambda t: bool(
+            t and (
+                "bekor" in t.casefold()
+                or "cancel" in t.casefold()
+                or "❌" in t
+            )
+        )
+    ),
+)
+async def cancel_task_upload_message(message: Message, state: FSMContext, session: AsyncSession):
     user = await session.scalar(
         select(User).where(User.telegram_id == message.from_user.id)
     )
@@ -561,7 +594,7 @@ async def handle_task_upload_document(
     doc = message.document
     if doc.file_size and doc.file_size > 50 * 1024 * 1024:
         await message.answer(
-            "? Fayl hajmi juda katta (maksimal 50 MB). Iltimos, kichikroq hajmdagi fayl yuboring.",
+            "❌ Fayl hajmi juda katta (maksimal 50 MB). Iltimos, kichikroq hajmdagi fayl yuboring.",
             reply_markup=cancel_kb(),
         )
         return
@@ -579,7 +612,7 @@ async def handle_task_upload_document(
         )
         return
 
-    status_msg = await message.answer("? Fayl yuklab olinmoqda va HEMIS tizimiga yuborilmoqda?")
+    status_msg = await message.answer("⏳ Fayl yuklab olinmoqda va HEMIS tizimiga yuborilmoqda…")
 
     try:
         file_io = io.BytesIO()
@@ -588,7 +621,7 @@ async def handle_task_upload_document(
     except Exception as dl_err:
         logger.error("Failed to download file from Telegram: %s", dl_err)
         await status_msg.edit_text(
-            "? Faylni Telegram'dan yuklab olishda xatolik yuz berdi. Qaytadan yuborib ko'ring."
+            "❌ Faylni Telegram'dan yuklab olishda xatolik yuz berdi. Qaytadan yuborib ko'ring."
         )
         return
 
@@ -613,33 +646,33 @@ async def handle_task_upload_document(
         await session.commit()
         await state.clear()
         await status_msg.edit_text(
-            "? HEMIS sessiyasi tugagan. ?? HEMIS ulash bo'limidan qayta kiring."
+            "❌ HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring."
         )
         await message.answer("Bosh menyu:", reply_markup=main_menu_kb())
         return
     except HemisScheduleError as error:
         await status_msg.edit_text(
-            f"? <b>Topshiriqni HEMIS tizimiga yuklab bo'lmadi!</b>\n\n"
-            f"?? Sabab: <i>{escape(str(error))}</i>\n\n"
-            f"Iltimos, boshqa fayl yuboring yoki ? Bekor qilish tugmasini bosing."
+            f"❌ <b>Topshiriqni HEMIS tizimiga yuklab bo'lmadi!</b>\n\n"
+            f"📌 Sabab: <i>{escape(str(error))}</i>\n\n"
+            f"Iltimos, boshqa fayl yuboring yoki ❌ Bekor qilish tugmasini bosing."
         )
         return
     except Exception as error:
         logger.error("Unexpected error in upload_hemis_task: %s", error)
         await status_msg.edit_text(
-            "? Kutilmagan xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring."
+            "❌ Kutilmagan xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring."
         )
         return
 
     await state.clear()
     now_str = datetime.now().strftime("%d.%m.%Y %H:%M")
     success_text = (
-        "? <b>Topshiriq HEMIS tizimiga muvaffaqiyatli yuklandi!</b>\n\n"
-        f"?? <b>Fan:</b> {escape(subject_name)}\n"
-        f"?? <b>Topshiriq:</b> {escape(task_name)}\n"
-        f"?? <b>Yuklangan fayl:</b> {escape(clean_filename)}\n"
-        f"?? <b>Topshirilgan vaqt:</b> {now_str}\n\n"
-        "?? Topshirig'ingiz qabul qilindi va o'qituvchi tekshiruviga yuborildi."
+        "✅ <b>Topshiriq HEMIS tizimiga muvaffaqiyatli yuklandi!</b>\n\n"
+        f"📚 <b>Fan:</b> {escape(subject_name)}\n"
+        f"📌 <b>Topshiriq:</b> {escape(task_name)}\n"
+        f"📎 <b>Yuklangan fayl:</b> {escape(clean_filename)}\n"
+        f"📅 <b>Topshirilgan vaqt:</b> {now_str}\n\n"
+        "🎉 Topshirig'ingiz qabul qilindi va o'qituvchi tekshiruviga yuborildi."
     )
     await status_msg.edit_text(success_text)
     await message.answer(
@@ -651,7 +684,7 @@ async def handle_task_upload_document(
 @router.message(UploadHemisTask.waiting_for_file)
 async def invalid_task_upload_message(message: Message):
     await message.answer(
-        "?? Iltimos, topshiriq faylini <b>hujjat (file / document)</b> ko'rinishida yuboring (masalan: PDF, DOCX, ZIP).\n\n"
-        "Bekor qilish uchun ? Bekor qilish tugmasini bosing.",
+        "⚠️ Iltimos, topshiriq faylini <b>hujjat (file / document)</b> ko'rinishida yuboring (masalan: PDF, DOCX, ZIP).\n\n"
+        "Bekor qilish uchun ❌ Bekor qilish tugmasini bosing.",
         reply_markup=cancel_kb(),
     )

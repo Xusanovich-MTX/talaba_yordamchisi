@@ -146,10 +146,10 @@ def subject_task_detail_back_kb(
         for idx, task in submittables:
             tid = task["id"]
             if len(submittables) == 1:
-                label = "?? Topshiriqni yuklash"
+                label = "📤 Topshiriqni yuklash"
             else:
                 name = str(task.get("name") or f"{idx}-topshiriq")[:20].strip()
-                label = f"?? {idx}. {name} ? topshirish"
+                label = f"📤 {idx}. {name} — topshirish"
             builder.button(
                 text=label,
                 callback_data=f"hemis_task_up:{tid}",
@@ -158,7 +158,7 @@ def subject_task_detail_back_kb(
 
     builder.row(
         InlineKeyboardButton(
-            text="?? Fanga qaytish",
+            text="🔙 Fanga qaytish",
             callback_data=f"hemis_res_card:{semester_code}:{subject_id}",
         )
     )
@@ -304,10 +304,10 @@ def task_subject_detail_kb(
         for idx, task in submittables:
             tid = task["id"]
             if len(submittables) == 1:
-                label = "?? Topshiriqni yuklash"
+                label = "📤 Topshiriqni yuklash"
             else:
                 name = str(task.get("name") or f"{idx}-topshiriq")[:20].strip()
-                label = f"?? {idx}. {name} ? topshirish"
+                label = f"📤 {idx}. {name} — topshirish"
             builder.button(
                 text=label,
                 callback_data=f"hemis_task_up:{tid}",
@@ -316,8 +316,21 @@ def task_subject_detail_kb(
 
     builder.row(
         InlineKeyboardButton(
-            text="?? Barcha fanlar topshiriqlariga qaytish",
+            text="🔙 Barcha fanlar topshiriqlariga qaytish",
             callback_data="hemis_tasks_back",
         )
     )
     return builder.as_markup()
+
+
+def task_upload_cancel_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="❌ Bekor qilish",
+                    callback_data="hemis_upload_cancel",
+                )
+            ]
+        ]
+    )
