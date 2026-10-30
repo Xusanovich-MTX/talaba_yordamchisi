@@ -28,7 +28,6 @@ from services.hemis_extra import (
     format_subject_attendance_detail,
     format_subject_resources,
     format_today_summary,
-    group_resources_by_category,
 )
 
 
@@ -183,27 +182,6 @@ class AcademicFeaturesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Kompyuter tarmoqlari", text)
         self.assertIn('href="https://hemis.samdu.uz/file_1.pdf"', text)
         self.assertNotIn("file_9.pdf", text)
-
-    def test_classify_and_group_resources_by_category(self):
-        resources = [
-            {"title": "1-mavzu", "trainingType": {"name": "Ma'ruza"}},
-            {"title": "2-mavzu", "trainingType": {"name": "Ma'ruza"}},
-            {"title": "1-laboratoriya ishi", "trainingType": {"name": "Laboratoriya mashg'uloti"}},
-            {"title": "1-amaliy ish", "trainingType": {"name": "Amaliy mashg'ulot"}},
-            {"title": "Seminar 1: Nazariya", "trainingType": {"name": "Seminar"}},
-            {"title": "Kurs ishi talablari", "trainingType": {"name": "Kurs ishi"}},
-            {"title": "Mustaqil ta'lim 1", "trainingType": {"name": "Mustaqil ta'lim"}},
-            {"title": "Qo'shimcha kitob", "trainingType": {"name": "Boshqa"}},
-        ]
-        grouped, counts = group_resources_by_category(resources)
-        self.assertEqual(counts["lecture"], 2)
-        self.assertEqual(counts["lab"], 1)
-        self.assertEqual(counts["practice"], 1)
-        self.assertEqual(counts["seminar"], 1)
-        self.assertEqual(counts["coursework"], 1)
-        self.assertEqual(counts["independent"], 1)
-        self.assertEqual(counts["other"], 1)
-        self.assertEqual(counts["all"], 8)
 
     def test_gpa_calculation_and_formatting_for_semesters_and_years(self):
         semesters = [

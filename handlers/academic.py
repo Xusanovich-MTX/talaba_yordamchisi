@@ -14,13 +14,11 @@ from keyboards.inline import (
     attendance_detail_kb,
     attendance_subjects_kb,
     gpa_semesters_kb,
-    resource_categories_kb,
     resource_pages_kb,
     resource_subjects_kb,
 )
 from keyboards.reply import main_menu_kb
 from services.hemis_extra import (
-    RESOURCE_CATEGORY_LABELS,
     build_attendance_subjects,
     calculate_semester_gpas,
     fetch_attendance,
@@ -36,7 +34,6 @@ from services.hemis_extra import (
     format_semester_gpa_details,
     format_subject_attendance_detail,
     format_subject_resources,
-    group_resources_by_category,
 )
 from services.hemis_schedule import HemisScheduleError, HemisSessionExpired
 from services.hemis_session import decrypt_hemis_session, encrypt_hemis_session
@@ -513,86 +510,15 @@ async def back_to_resource_subjects(
     )
 
 
-@router.callback_query(F.data.startswith("hemis_res_cat:"))
-async def show_subject_resource_categories(
-    callback: CallbackQuery, session: AsyncSession
-):
-    parts = (callback.data or "").split(":")
-    if len(parts) != 3:
-        await callback.answer("Noto'g'ri so'rov.", show_alert=True)
-        return
-    _, sem_code, subj_id = parts
-    if not sem_code.isalnum() or not subj_id.isdecimal():
-        await callback.answer("Noto'g'ri parametr.", show_alert=True)
-        return
-
-    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
-        await callback.answer("Resurslar bo'limini qayta oching.", show_alert=True)
-        return
-
-    user, session_data = await _get_connected_user_and_session(
-        callback.from_user.id, session, callback, is_callback=True
-    )
-    if not user or not session_data:
-        return
-
-    await callback.answer("Bo'limlar yuklanmoqda…")
-    try:
-        resources, updated_session = await fetch_subject_resources(
-            user.hemis_api_url, session_data, sem_code, subj_id
-        )
-        await _save_updated_session(session, user, session_data, updated_session)
-    except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await callback.message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
-        return
-    except HemisScheduleError:
-        await callback.message.answer(
-            "HEMIS resurslarini hozir olib bo'lmadi. Birozdan keyin qayta urinib ko'ring."
-        )
-        return
-
-    subject_name = ""
-    if resources and isinstance(resources[0].get("subject"), dict):
-        subject_name = str(resources[0]["subject"].get("name") or "")
-
-    _, counts = group_resources_by_category(resources)
-    kb = resource_categories_kb(sem_code, subj_id, counts)
-    text = (
-        f"📚 <b>{escape(subject_name or 'Fan')} — Resurs bo'limlari</b>\n\n"
-        f"Jami elektron resurslar: <b>{len(resources)} ta</b>\n\n"
-        "Kerakli bo'limni tanlang (ma'ruza, laboratoriya, amaliyot, seminar, kurs ishi yoki mustaqil ta'lim):"
-    )
-    try:
-        await callback.message.edit_text(text, reply_markup=kb)
-    except Exception:
-        await callback.message.answer(text, reply_markup=kb)
-
-
-@router.callback_query(F.data.startswith("hemis_res_files:"))
 @router.callback_query(F.data.startswith("hemis_res:"))
 async def show_subject_resources_page(
     callback: CallbackQuery, session: AsyncSession
 ):
-    raw_data = callback.data or ""
-    if raw_data.startswith("hemis_res_files:"):
-        parts = raw_data.split(":")
-        if len(parts) != 5:
-            await callback.answer("Noto'g'ri so'rov.", show_alert=True)
-            return
-        _, sem_code, subj_id, category_key, page_str = parts
-    else:
-        parts = raw_data.split(":")
-        if len(parts) != 4:
-            await callback.answer("Noto'g'ri so'rov.", show_alert=True)
-            return
-        _, sem_code, subj_id, page_str = parts
-        category_key = "all"
-
+    parts = (callback.data or "").split(":")
+    if len(parts) != 4:
+        await callback.answer("Noto'g'ri so'rov.", show_alert=True)
+        return
+    _, sem_code, subj_id, page_str = parts
     if not sem_code.isalnum() or not subj_id.isdecimal() or not page_str.isdecimal():
         await callback.answer("Noto'g'ri parametr.", show_alert=True)
         return
@@ -632,20 +558,10 @@ async def show_subject_resources_page(
     if resources and isinstance(resources[0].get("subject"), dict):
         subject_name = str(resources[0]["subject"].get("name") or "")
 
-    grouped, counts = group_resources_by_category(resources)
-    if category_key == "all":
-        category_resources = resources
-    else:
-        category_resources = grouped.get(category_key, [])
-
-    category_title = RESOURCE_CATEGORY_LABELS.get(category_key, "Resurslar")
     text, total_pages = format_subject_resources(
-        category_resources,
-        subject_name=subject_name,
-        category_title=category_title,
-        page=page,
+        resources, subject_name=subject_name, page=page
     )
-    kb = resource_pages_kb(sem_code, subj_id, page, total_pages, category_key=category_key)
+    kb = resource_pages_kb(sem_code, subj_id, page, total_pages)
     try:
         await callback.message.edit_text(
             text, reply_markup=kb, disable_web_page_preview=True

@@ -50,70 +50,14 @@ def resource_subjects_kb(
         label = f"📚 {name[:42]} ({res_count})"
         builder.button(
             text=label,
-            callback_data=f"hemis_res_cat:{semester_code}:{subj_id}",
+            callback_data=f"hemis_res:{semester_code}:{subj_id}:0",
         )
     builder.adjust(1)
     return builder.as_markup()
 
 
-def resource_categories_kb(
-    semester_code: str,
-    subject_id: int | str,
-    counts: dict[str, int],
-) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-
-    cats = [
-        ("lecture", "📖 Ma'ruza"),
-        ("lab", "🧪 Laboratoriya"),
-        ("practice", "💻 Amaliyot"),
-        ("seminar", "👥 Seminar"),
-        ("coursework", "📄 Kurs ishi"),
-        ("independent", "📝 Mustaqil ta'lim"),
-    ]
-
-    for key, title in cats:
-        cnt = counts.get(key, 0)
-        label = f"{title} ({cnt})"
-        builder.button(
-            text=label,
-            callback_data=f"hemis_res_files:{semester_code}:{subject_id}:{key}:0",
-        )
-    builder.adjust(2)
-
-    total_cnt = counts.get("all", sum(counts.get(k, 0) for k, _ in cats))
-    other_cnt = counts.get("other", 0)
-    extra_row = []
-    if other_cnt > 0:
-        extra_row.append(
-            InlineKeyboardButton(
-                text=f"📁 Boshqa ({other_cnt})",
-                callback_data=f"hemis_res_files:{semester_code}:{subject_id}:other:0",
-            )
-        )
-    extra_row.append(
-        InlineKeyboardButton(
-            text=f"📁 Barcha fayllar ({total_cnt})",
-            callback_data=f"hemis_res_files:{semester_code}:{subject_id}:all:0",
-        )
-    )
-    builder.row(*extra_row)
-
-    builder.row(
-        InlineKeyboardButton(
-            text="🔙 Fanlar ro'yxatiga qaytish",
-            callback_data="hemis_res_back",
-        )
-    )
-    return builder.as_markup()
-
-
 def resource_pages_kb(
-    semester_code: str,
-    subject_id: int | str,
-    page: int,
-    total_pages: int,
-    category_key: str = "all",
+    semester_code: str, subject_id: int | str, page: int, total_pages: int
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     nav_row: list[InlineKeyboardButton] = []
@@ -121,27 +65,23 @@ def resource_pages_kb(
         nav_row.append(
             InlineKeyboardButton(
                 text="⬅️ Oldingi",
-                callback_data=f"hemis_res_files:{semester_code}:{subject_id}:{category_key}:{page - 1}",
+                callback_data=f"hemis_res:{semester_code}:{subject_id}:{page - 1}",
             )
         )
     if page + 1 < total_pages:
         nav_row.append(
             InlineKeyboardButton(
                 text="Keyingi ➡️",
-                callback_data=f"hemis_res_files:{semester_code}:{subject_id}:{category_key}:{page + 1}",
+                callback_data=f"hemis_res:{semester_code}:{subject_id}:{page + 1}",
             )
         )
     if nav_row:
         rows.append(nav_row)
     rows.append([
         InlineKeyboardButton(
-            text="⬅️ Bo'limlarga qaytish",
-            callback_data=f"hemis_res_cat:{semester_code}:{subject_id}",
-        ),
-        InlineKeyboardButton(
             text="🔙 Fanlar ro'yxatiga qaytish",
             callback_data="hemis_res_back",
-        ),
+        )
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
