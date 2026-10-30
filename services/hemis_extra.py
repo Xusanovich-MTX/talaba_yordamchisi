@@ -676,7 +676,7 @@ def format_subject_resources(
     subject_name: str = "",
     category_title: str = "",
     page: int = 0,
-    page_size: int = 8,
+    page_size: int = 4,
 ) -> tuple[str, int]:
     total = len(resources)
     total_pages = max(1, (total + page_size - 1) // page_size)
