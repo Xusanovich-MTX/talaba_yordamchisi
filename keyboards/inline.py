@@ -73,10 +73,6 @@ def subject_sections_kb(
         callback_data=f"hemis_res_tasks:{semester_code}:{subject_id}",
     )
     builder.button(
-        text="🧪 Mavzulashtirilgan testlar (0/0)",
-        callback_data=f"hemis_res_tests:{semester_code}:{subject_id}",
-    )
-    builder.button(
         text="🔙 Fanlar ro'yxatiga qaytish",
         callback_data="hemis_res_back",
     )

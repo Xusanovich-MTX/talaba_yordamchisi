@@ -720,7 +720,6 @@ def format_subject_card(item: dict[str, Any], *, semester_name: str = "") -> str
         "📊 <b>Bo'limlar:</b>",
         f"   • 📁 <b>Resurslar soni:</b> {res_cnt}",
         f"   • 📝 <b>Topshiriqlar soni:</b> {submits_cnt}/{tasks_cnt}",
-        f"   • 🧪 <b>Mavzulashtirilgan testlar:</b> 0/0",
         "",
         "👇 <i>Kerakli bo'lim ustiga bosing:</i>",
     ])
