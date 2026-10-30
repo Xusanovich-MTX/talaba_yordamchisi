@@ -47,11 +47,39 @@ def resource_subjects_kb(
         subj_id = subj["id"]
         name = str(subj.get("name") or "Fan")
         res_count = int(item.get("resources_count") or 0)
-        label = f"📚 {name[:36]} ({res_count} ta fayl)"
+        label = f"📚 {name[:36]} ({res_count})"
         builder.button(
             text=label,
-            callback_data=f"hemis_res:{semester_code}:{subj_id}:0",
+            callback_data=f"hemis_res_card:{semester_code}:{subj_id}",
         )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def subject_sections_kb(
+    semester_code: str,
+    subject_id: int | str,
+    res_count: int,
+    submits_cnt: int = 0,
+    tasks_count: int = 0,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=f"📁 Resurslar soni ({res_count})",
+        callback_data=f"hemis_res_files:{semester_code}:{subject_id}:0",
+    )
+    builder.button(
+        text=f"📝 Topshiriqlar soni ({submits_cnt}/{tasks_count})",
+        callback_data=f"hemis_res_tasks:{semester_code}:{subject_id}",
+    )
+    builder.button(
+        text="🧪 Mavzulashtirilgan testlar (0/0)",
+        callback_data=f"hemis_res_tests:{semester_code}:{subject_id}",
+    )
+    builder.button(
+        text="🔙 Fanlar ro'yxatiga qaytish",
+        callback_data="hemis_res_back",
+    )
     builder.adjust(1)
     return builder.as_markup()
 
@@ -65,25 +93,40 @@ def resource_pages_kb(
         nav_row.append(
             InlineKeyboardButton(
                 text="⬅️ Oldingi",
-                callback_data=f"hemis_res:{semester_code}:{subject_id}:{page - 1}",
+                callback_data=f"hemis_res_files:{semester_code}:{subject_id}:{page - 1}",
             )
         )
     if page + 1 < total_pages:
         nav_row.append(
             InlineKeyboardButton(
                 text="Keyingi ➡️",
-                callback_data=f"hemis_res:{semester_code}:{subject_id}:{page + 1}",
+                callback_data=f"hemis_res_files:{semester_code}:{subject_id}:{page + 1}",
             )
         )
     if nav_row:
         rows.append(nav_row)
     rows.append([
         InlineKeyboardButton(
-            text="🔙 Fanlar ro'yxatiga qaytish",
-            callback_data="hemis_res_back",
+            text="🔙 Fanga qaytish",
+            callback_data=f"hemis_res_card:{semester_code}:{subject_id}",
         )
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def subject_task_detail_back_kb(
+    semester_code: str, subject_id: int | str
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔙 Fanga qaytish",
+                    callback_data=f"hemis_res_card:{semester_code}:{subject_id}",
+                )
+            ]
+        ]
+    )
 
 
 def gpa_semesters_kb(

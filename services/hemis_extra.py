@@ -672,6 +672,35 @@ def format_subject_resources(
     return "\n".join(lines), total_pages
 
 
+def format_subject_card(item: dict[str, Any], *, semester_name: str = "") -> str:
+    subj = item.get("subject") or {}
+    sname = str(subj.get("name") or "Fan")
+    stype = str((item.get("subjectType") or {}).get("name") or "Majburiy")
+    acload = item.get("total_acload") or 0
+    credit = item.get("credit") or 0
+
+    res_cnt = int(item.get("resources_count") or 0)
+    tasks_cnt = int(item.get("tasks_count") or 0)
+    submits_cnt = int(item.get("submits_count") or 0)
+
+    lines = [
+        f"📘 <b>{escape(sname)}</b>",
+        f"<i>{escape(stype)} | {acload} soat | {credit} kredit</i>",
+    ]
+    if semester_name:
+        lines.append(f"🗓 <b>Semestr:</b> {escape(str(semester_name))}")
+    lines.extend([
+        "",
+        "📊 <b>Bo'limlar:</b>",
+        f"   • 📁 <b>Resurslar soni:</b> {res_cnt}",
+        f"   • 📝 <b>Topshiriqlar soni:</b> {submits_cnt}/{tasks_cnt}",
+        f"   • 🧪 <b>Mavzulashtirilgan testlar:</b> 0/0",
+        "",
+        "👇 <i>Kerakli bo'lim ustiga bosing:</i>",
+    ])
+    return "\n".join(lines)
+
+
 # --- 5. ERTALABKI MOTIVATSION XABAR VA KUNLIK XULOSA ---
 
 MORNING_MOTIVATIONS = (

@@ -26,6 +26,7 @@ from services.hemis_extra import (
     format_morning_motivation,
     format_semester_gpa_details,
     format_subject_attendance_detail,
+    format_subject_card,
     format_subject_resources,
     format_today_summary,
 )
@@ -361,6 +362,42 @@ class AcademicFeaturesTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Dasturlash", edited_text)
             self.assertIn("6.7%", edited_text)
             self.assertIn("11 soat", edited_text)
+
+            # Test show_subject_card_callback
+            sample_subjs = [
+                {
+                    "subject": {"id": 101, "name": "Loyihalarni boshqarish"},
+                    "subjectType": {"name": "Majburiy"},
+                    "total_acload": 120,
+                    "credit": 4.0,
+                    "resources_count": 40,
+                    "tasks_count": 1,
+                    "submits_count": 0,
+                }
+            ]
+            cb_card = SimpleNamespace(
+                data="hemis_res_card:17:101",
+                from_user=SimpleNamespace(id=900001),
+                answer=AsyncMock(),
+                message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+            )
+            with (
+                patch.object(academic, "decrypt_hemis_session", return_value=session_dict),
+                patch.object(
+                    academic,
+                    "fetch_semester_subjects",
+                    new=AsyncMock(return_value=({"name": "7-semestr"}, sample_subjs, session_dict)),
+                ),
+            ):
+                async with sessions() as session:
+                    await academic.show_subject_card_callback(cb_card, session)
+
+            cb_card.message.edit_text.assert_awaited_once()
+            card_text = cb_card.message.edit_text.await_args.args[0]
+            self.assertIn("Loyihalarni boshqarish", card_text)
+            self.assertIn("Majburiy | 120 soat | 4.0 kredit", card_text)
+            self.assertIn("Resurslar soni:</b> 40", card_text)
+            self.assertIn("Topshiriqlar soni:</b> 0/1", card_text)
         finally:
             await storage.close()
             await engine.dispose()

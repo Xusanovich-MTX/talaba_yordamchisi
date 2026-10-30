@@ -16,6 +16,8 @@ from keyboards.inline import (
     gpa_semesters_kb,
     resource_pages_kb,
     resource_subjects_kb,
+    subject_sections_kb,
+    subject_task_detail_back_kb,
 )
 from keyboards.reply import main_menu_kb
 from services.hemis_extra import (
@@ -33,8 +35,10 @@ from services.hemis_extra import (
     format_grades_overview,
     format_semester_gpa_details,
     format_subject_attendance_detail,
+    format_subject_card,
     format_subject_resources,
 )
+from services.hemis_tasks import format_subject_tasks_detail
 from services.hemis_schedule import HemisScheduleError, HemisSessionExpired
 from services.hemis_session import decrypt_hemis_session, encrypt_hemis_session
 
@@ -510,18 +514,77 @@ async def back_to_resource_subjects(
     )
 
 
-@router.callback_query(F.data.startswith("hemis_res:"))
-async def show_subject_resources_page(
+@router.callback_query(F.data.startswith("hemis_res_card:"))
+async def show_subject_card_callback(callback: CallbackQuery, session: AsyncSession):
+    parts = (callback.data or "").split(":")
+    if len(parts) != 3:
+        await callback.answer("Noto'g'ri so'rov.", show_alert=True)
+        return
+    _, sem_code, subj_id_str = parts
+    if not sem_code.isalnum() or not subj_id_str.isdecimal():
+        await callback.answer("Noto'g'ri parametr.", show_alert=True)
+        return
+    subj_id = int(subj_id_str)
+
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        await callback.answer("Resurslar bo'limini qayta oching.", show_alert=True)
+        return
+
+    user, session_data = await _get_connected_user_and_session(
+        callback.from_user.id, session, callback, is_callback=True
+    )
+    if not user or not session_data:
+        return
+
+    await callback.answer("Fan ma'lumotlari yuklanmoqda…")
+    try:
+        semester, subjects, updated_session = await fetch_semester_subjects(
+            user.hemis_api_url, session_data, user.timezone
+        )
+        await _save_updated_session(session, user, session_data, updated_session)
+    except (HemisScheduleError, HemisSessionExpired):
+        await callback.message.answer(
+            "Fan ma'lumotlarini hozir olib bo'lmadi. Qayta urinib ko'ring."
+        )
+        return
+
+    target_item = None
+    for item in subjects:
+        s_obj = item.get("subject") or {}
+        if s_obj.get("id") == subj_id:
+            target_item = item
+            break
+
+    if not target_item:
+        await callback.answer("Fan topilmadi.", show_alert=True)
+        return
+
+    sem_name = str(semester.get("name") or "")
+    text = format_subject_card(target_item, semester_name=sem_name)
+    res_cnt = int(target_item.get("resources_count") or 0)
+    tasks_cnt = int(target_item.get("tasks_count") or 0)
+    submits_cnt = int(target_item.get("submits_count") or 0)
+    kb = subject_sections_kb(sem_code, subj_id, res_cnt, submits_cnt, tasks_cnt)
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("hemis_res_files:"))
+async def show_subject_resources_files(
     callback: CallbackQuery, session: AsyncSession
 ):
     parts = (callback.data or "").split(":")
     if len(parts) != 4:
         await callback.answer("Noto'g'ri so'rov.", show_alert=True)
         return
-    _, sem_code, subj_id, page_str = parts
-    if not sem_code.isalnum() or not subj_id.isdecimal() or not page_str.isdecimal():
+    _, sem_code, subj_id_str, page_str = parts
+    if not sem_code.isalnum() or not subj_id_str.isdecimal() or not page_str.isdecimal():
         await callback.answer("Noto'g'ri parametr.", show_alert=True)
         return
+    subj_id = int(subj_id_str)
     page = int(page_str)
 
     if callback.message is None or isinstance(callback.message, InaccessibleMessage):
@@ -570,3 +633,86 @@ async def show_subject_resources_page(
         await callback.message.answer(
             text, reply_markup=kb, disable_web_page_preview=True
         )
+
+
+@router.callback_query(F.data.startswith("hemis_res_tasks:"))
+async def show_subject_resources_tasks(
+    callback: CallbackQuery, session: AsyncSession
+):
+    parts = (callback.data or "").split(":")
+    if len(parts) != 3:
+        await callback.answer("Noto'g'ri so'rov.", show_alert=True)
+        return
+    _, sem_code, subj_id_str = parts
+    if not sem_code.isalnum() or not subj_id_str.isdecimal():
+        await callback.answer("Noto'g'ri parametr.", show_alert=True)
+        return
+    subj_id = int(subj_id_str)
+
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        await callback.answer("Resurslar bo'limini qayta oching.", show_alert=True)
+        return
+
+    user, session_data = await _get_connected_user_and_session(
+        callback.from_user.id, session, callback, is_callback=True
+    )
+    if not user or not session_data:
+        return
+
+    await callback.answer("Topshiriqlar yuklanmoqda…")
+    try:
+        semester, subjects, all_tasks, updated_session = await fetch_grades_overview(
+            user.hemis_api_url, session_data, user.timezone
+        )
+        await _save_updated_session(session, user, session_data, updated_session)
+    except Exception:
+        await callback.message.answer(
+            "Topshiriqlarni hozir olib bo'lmadi. Birozdan keyin qayta urinib ko'ring."
+        )
+        return
+
+    subj_tasks = [t for t in all_tasks if (t.get("subject") or {}).get("id") == subj_id]
+    subject_name = "Fan"
+    for s_item in subjects:
+        s_obj = s_item.get("subject") or {}
+        if s_obj.get("id") == subj_id:
+            subject_name = str(s_obj.get("name") or "Fan")
+            break
+    if not subj_tasks and subject_name == "Fan":
+        for t in all_tasks:
+            s_obj = t.get("subject") or {}
+            if s_obj.get("id") == subj_id:
+                subject_name = str(s_obj.get("name") or "Fan")
+                break
+
+    text = format_subject_tasks_detail(
+        subject_name,
+        subj_tasks,
+        timezone_name=user.timezone,
+        semester_name=str(semester.get("name") or ""),
+    )
+    kb = subject_task_detail_back_kb(sem_code, subj_id)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("hemis_res_tests:"))
+async def show_subject_resources_tests(callback: CallbackQuery):
+    await callback.answer(
+        "ℹ️ Ushbu fan bo'yicha mavzulashtirilgan testlar mavjud emas (0/0).",
+        show_alert=True,
+    )
+
+
+@router.callback_query(F.data.startswith("hemis_res:"))
+async def legacy_subject_resources_redirect(
+    callback: CallbackQuery, session: AsyncSession
+):
+    parts = (callback.data or "").split(":")
+    if len(parts) == 4:
+        callback.data = f"hemis_res_files:{parts[1]}:{parts[2]}:{parts[3]}"
+        await show_subject_resources_files(callback, session)
+        return
+    await show_subject_card_callback(callback, session)
