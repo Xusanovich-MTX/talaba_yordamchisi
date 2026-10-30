@@ -524,7 +524,8 @@ async def ask_task_upload_file(
     info_lines.extend([
         "",
         "📎 <b>Topshiriq yechimi faylini botga yuboring:</b>",
-        "(PDF, Word .docx/.doc, ZIP, PPTX va h.k.)",
+        "📄 <b>Format:</b> faqat <b>PDF (.pdf)</b> yoki <b>Word (.docx, .doc)</b>",
+        "⚖️ <b>Maksimal hajm:</b> <b>10 MB</b> gacha",
         "",
         "<i>Bekor qilish uchun pastdagi ❌ Bekor qilish tugmasini bosing.</i>",
     ])
@@ -592,9 +593,25 @@ async def handle_task_upload_document(
         return
 
     doc = message.document
-    if doc.file_size and doc.file_size > 50 * 1024 * 1024:
+    raw_filename = doc.file_name or ""
+    file_ext = raw_filename.rsplit(".", 1)[-1].casefold() if "." in raw_filename else ""
+    if file_ext not in {"pdf", "doc", "docx"}:
         await message.answer(
-            "❌ Fayl hajmi juda katta (maksimal 50 MB). Iltimos, kichikroq hajmdagi fayl yuboring.",
+            "⚠️ <b>Noto'g'ri fayl formati!</b>\n\n"
+            "HEMIS tizimiga faqat <b>Word (.docx, .doc)</b> yoki <b>PDF (.pdf)</b> formatidagi fayllarni yuklash mumkin (ZIP va boshqa formatlar qabul qilinmaydi).\n\n"
+            "<i>Iltimos, topshiriqni PDF yoki Word formatida yuboring yoki ❌ Bekor qilish tugmasini bosing.</i>",
+            reply_markup=cancel_kb(),
+        )
+        return
+
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+    if doc.file_size and doc.file_size > MAX_FILE_SIZE:
+        size_mb = doc.file_size / (1024 * 1024)
+        await message.answer(
+            f"⚠️ <b>Fayl hajmi juda katta!</b>\n\n"
+            f"HEMIS tizimida fayl hajmi maksimal <b>10 MB</b> gacha bo'lishi kerak.\n"
+            f"Siz yuborgan fayl hajmi: <b>{size_mb:.1f} MB</b>.\n\n"
+            "<i>Iltimos, fayl hajmini 10 MB dan kichik qilib qaytadan yuboring yoki ❌ Bekor qilish tugmasini bosing.</i>",
             reply_markup=cancel_kb(),
         )
         return
@@ -684,7 +701,7 @@ async def handle_task_upload_document(
 @router.message(UploadHemisTask.waiting_for_file)
 async def invalid_task_upload_message(message: Message):
     await message.answer(
-        "⚠️ Iltimos, topshiriq faylini <b>hujjat (file / document)</b> ko'rinishida yuboring (masalan: PDF, DOCX, ZIP).\n\n"
+        "⚠️ Iltimos, topshiriq faylini <b>hujjat (file / document)</b> ko'rinishida faqat <b>PDF</b> yoki <b>Word (.docx, .doc)</b> formatida (10 MB gacha) yuboring.\n\n"
         "Bekor qilish uchun ❌ Bekor qilish tugmasini bosing.",
         reply_markup=cancel_kb(),
     )

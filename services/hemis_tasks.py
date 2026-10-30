@@ -518,6 +518,13 @@ async def upload_hemis_task(
     if not access_token:
         raise HemisSessionExpired("The HEMIS access token is missing.")
 
+    ext = filename.rsplit(".", 1)[-1].casefold() if "." in filename else ""
+    if ext not in {"pdf", "doc", "docx"}:
+        raise HemisScheduleError("Faqat Word (.doc, .docx) yoki PDF (.pdf) formatidagi fayllar qabul qilinadi.")
+
+    if len(file_bytes) > 10 * 1024 * 1024:
+        raise HemisScheduleError("Fayl hajmi 10 MB dan oshmasligi kerak.")
+
     upload_url = f"{api_url.rstrip('/')}/education/task-upload"
     params = {"task": str(task_id)}
 

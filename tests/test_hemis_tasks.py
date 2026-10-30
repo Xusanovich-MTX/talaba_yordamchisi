@@ -296,6 +296,29 @@ class HemisTasksTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(data["id"], 999)
 
+    async def test_upload_hemis_task_rejects_zip_format(self):
+        with self.assertRaises(HemisScheduleError) as ctx:
+            await upload_hemis_task(
+                API_URL,
+                SESSION,
+                123,
+                b"PK...",
+                "mustaqil.zip",
+            )
+        self.assertIn("Faqat Word (.doc, .docx) yoki PDF (.pdf)", str(ctx.exception))
+
+    async def test_upload_hemis_task_rejects_large_size(self):
+        large_bytes = b"0" * (11 * 1024 * 1024)
+        with self.assertRaises(HemisScheduleError) as ctx:
+            await upload_hemis_task(
+                API_URL,
+                SESSION,
+                123,
+                large_bytes,
+                "mustaqil.pdf",
+            )
+        self.assertIn("10 MB dan oshmasligi kerak", str(ctx.exception))
+
     async def test_upload_hemis_task_handles_error(self):
         with patch("aiohttp.ClientSession.post") as post_mock:
             mock_resp = AsyncMock()
@@ -363,7 +386,33 @@ class HemisTasksTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Topshiriqni HEMIS tizimiga yuklash", cb.message.answer.await_args.args[0])
             self.assertEqual(await state.get_state(), tasks_handler.UploadHemisTask.waiting_for_file.state)
 
-            # 2. Upload file
+            # 2. Reject zip upload
+            zip_msg = SimpleNamespace(
+                from_user=SimpleNamespace(id=900002),
+                document=SimpleNamespace(file_size=1024, file_name="lab1.zip"),
+                caption=None,
+                bot=SimpleNamespace(download=AsyncMock()),
+                answer=AsyncMock(),
+            )
+            async with sessions() as session:
+                await tasks_handler.handle_task_upload_document(zip_msg, state, session)
+            self.assertIn("Noto'g'ri fayl formati", zip_msg.answer.await_args.args[0])
+            self.assertEqual(await state.get_state(), tasks_handler.UploadHemisTask.waiting_for_file.state)
+
+            # 3. Reject oversized upload (> 10 MB)
+            large_msg = SimpleNamespace(
+                from_user=SimpleNamespace(id=900002),
+                document=SimpleNamespace(file_size=12 * 1024 * 1024, file_name="lab1.pdf"),
+                caption=None,
+                bot=SimpleNamespace(download=AsyncMock()),
+                answer=AsyncMock(),
+            )
+            async with sessions() as session:
+                await tasks_handler.handle_task_upload_document(large_msg, state, session)
+            self.assertIn("Fayl hajmi juda katta", large_msg.answer.await_args.args[0])
+            self.assertEqual(await state.get_state(), tasks_handler.UploadHemisTask.waiting_for_file.state)
+
+            # 4. Upload valid PDF file
             doc_msg = SimpleNamespace(
                 from_user=SimpleNamespace(id=900002),
                 document=SimpleNamespace(file_size=1024, file_name="lab1.pdf"),
