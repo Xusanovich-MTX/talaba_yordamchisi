@@ -28,6 +28,7 @@ from services.hemis_tasks import (
     format_subject_tasks_detail,
     format_upcoming_tasks,
     upload_hemis_task,
+    sort_subject_tasks,
 )
 
 router = Router()
@@ -215,7 +216,7 @@ async def show_subject_tasks_callback(callback: CallbackQuery, session: AsyncSes
         return
 
     # Filter tasks and find subject name
-    subj_tasks = [t for t in all_tasks if (t.get("subject") or {}).get("id") == subj_id]
+    subj_tasks = sort_subject_tasks([t for t in all_tasks if (t.get("subject") or {}).get("id") == subj_id])
     subject_name = "Fan"
     for s_item in subjects:
         s_obj = s_item.get("subject") or {}

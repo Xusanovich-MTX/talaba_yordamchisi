@@ -1,3 +1,4 @@
+from services.hemis_tasks import sort_subject_tasks
 from datetime import date, timedelta
 from typing import Any
 
@@ -139,6 +140,7 @@ def subject_task_detail_back_kb(
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if tasks:
+        tasks = sort_subject_tasks(tasks)
         submittables = [
             (idx, t) for idx, t in enumerate(tasks, 1)
             if is_task_submittable(t) and t.get("id") is not None
@@ -297,6 +299,7 @@ def task_subject_detail_kb(
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if tasks:
+        tasks = sort_subject_tasks(tasks)
         submittables = [
             (idx, t) for idx, t in enumerate(tasks, 1)
             if is_task_submittable(t) and t.get("id") is not None

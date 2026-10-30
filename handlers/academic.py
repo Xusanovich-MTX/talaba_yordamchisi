@@ -671,7 +671,7 @@ async def show_subject_resources_tasks(
         )
         return
 
-    subj_tasks = [t for t in all_tasks if (t.get("subject") or {}).get("id") == subj_id]
+    subj_tasks = sort_subject_tasks([t for t in all_tasks if (t.get("subject") or {}).get("id") == subj_id])
     subject_name = "Fan"
     for s_item in subjects:
         s_obj = s_item.get("subject") or {}

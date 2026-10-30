@@ -23,6 +23,7 @@ from services.hemis_tasks import (
     fetch_upcoming_tasks,
     format_upcoming_tasks,
     select_upcoming_tasks,
+    sort_subject_tasks,
     upload_hemis_task,
 )
 from keyboards.inline import is_task_submittable, task_subject_detail_kb, subject_task_detail_back_kb
@@ -234,6 +235,19 @@ class HemisTasksTests(unittest.IsolatedAsyncioTestCase):
             await engine.dispose()
 
 
+
+    def test_sort_subject_tasks_orders_tasks_sequentially(self):
+        tasks = [
+            make_task(40, name="4-mustaqil ish", deadline=NOW + 4000),
+            make_task(30, name="3-mustaqil ish", deadline=NOW + 3000),
+            make_task(20, name="2-mustaqil ish", deadline=NOW + 2000),
+            make_task(10, name="1-mustaqil ish", deadline=NOW + 1000),
+        ]
+        sorted_tasks = sort_subject_tasks(tasks)
+        self.assertEqual(
+            [t["name"] for t in sorted_tasks],
+            ["1-mustaqil ish", "2-mustaqil ish", "3-mustaqil ish", "4-mustaqil ish"],
+        )
 
     def test_is_task_submittable(self):
         # 1. New task (no activity, code 11) -> True

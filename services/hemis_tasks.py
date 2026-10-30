@@ -319,6 +319,27 @@ def format_single_task_block(
     return "\n".join(lines)
 
 
+
+def sort_subject_tasks(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    import re
+
+    def _task_sort_key(task: dict[str, Any]) -> tuple:
+        name = str(task.get("name") or "").strip()
+        match = re.search(r"^\s*(\d+)", name)
+        if match:
+            num = int(match.group(1))
+        else:
+            match_any = re.search(r"(\d+)", name)
+            num = int(match_any.group(1)) if match_any else 999999
+
+        raw_deadline = task.get("deadline")
+        deadline = _timestamp(raw_deadline) if raw_deadline is not None else 9999999999.0
+        tid = task.get("id") or 0
+        return (num, deadline if deadline is not None else 9999999999.0, tid)
+
+    return sorted(tasks, key=_task_sort_key)
+
+
 def format_subject_tasks_detail(
     subject_name: str,
     tasks: list[dict[str, Any]],
@@ -329,6 +350,7 @@ def format_subject_tasks_detail(
 ) -> str:
     local_timezone = _local_timezone(timezone_name)
     current_ts = now if now is not None else datetime.now(local_timezone).timestamp()
+    tasks = sort_subject_tasks(tasks)
 
     lines = [f"📚 <b>{escape(subject_name)} — Topshiriqlar</b>"]
     if semester_name:
@@ -362,6 +384,7 @@ def format_upcoming_tasks(
 ) -> str:
     local_timezone = _local_timezone(timezone_name)
     current_ts = now if now is not None else datetime.now(local_timezone).timestamp()
+    tasks = sort_subject_tasks(tasks)
 
     header = ["📝 <b>HEMIS: yuklashga yaqin topshiriqlar</b>"]
     if semester_name:
