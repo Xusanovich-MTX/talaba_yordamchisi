@@ -47,7 +47,7 @@ def resource_subjects_kb(
         subj_id = subj["id"]
         name = str(subj.get("name") or "Fan")
         res_count = int(item.get("resources_count") or 0)
-        label = f"📚 {name[:42]} ({res_count})"
+        label = f"📚 {name[:36]} ({res_count} ta fayl)"
         builder.button(
             text=label,
             callback_data=f"hemis_res:{semester_code}:{subj_id}:0",
@@ -157,6 +157,7 @@ def task_subjects_kb(
     subjects: list[dict[str, Any]],
     tasks: list[dict[str, Any]],
 ) -> InlineKeyboardMarkup:
+    """Faqat topshiriqlari mavjud bo'lgan fanlar ro'yxatini chiqaradi (ortiqcha bo'sh fanlarsiz)."""
     builder = InlineKeyboardBuilder()
 
     task_map: dict[Any, list[dict[str, Any]]] = {}
@@ -165,28 +166,49 @@ def task_subjects_kb(
         if sid is not None:
             task_map.setdefault(sid, []).append(t)
 
+    added_sids = set()
+    # 1. subjects ro'yxatidan topshirig'i bor fanlarni tartib bilan olish
     for item in subjects:
         s_obj = item.get("subject") or {}
         sid = s_obj.get("id")
-        if sid is None:
+        if sid is None or sid not in task_map or not task_map[sid]:
             continue
+        added_sids.add(sid)
+        tlist = task_map[sid]
         sname = str(s_obj.get("name") or "Fan")
-        tlist = task_map.get(sid, [])
         unsubmitted_cnt = sum(
             1 for t in tlist if str((t.get("taskStatus") or {}).get("code") or "") == "11"
         )
         if unsubmitted_cnt > 0:
             badge = f"🔴 {unsubmitted_cnt} ta topshiriq"
-        elif len(tlist) > 0:
-            badge = f"🟢 {len(tlist)} ta bajarilgan"
         else:
-            badge = "0 ta"
+            badge = f"🟢 {len(tlist)} ta bajarilgan"
 
-        label = f"📚 {sname[:32]} ({badge})"
+        label = f"📚 {sname[:34]} ({badge})"
         builder.button(
             text=label,
             callback_data=f"hemis_task_subj:{sid}",
         )
+
+    # 2. Agar qaysidir topshiriqning fani subjects ro'yxatida uchramasa, uni ham qo'shish
+    for sid, tlist in task_map.items():
+        if sid in added_sids or not tlist:
+            continue
+        sname = str((tlist[0].get("subject") or {}).get("name") or "Fan")
+        unsubmitted_cnt = sum(
+            1 for t in tlist if str((t.get("taskStatus") or {}).get("code") or "") == "11"
+        )
+        if unsubmitted_cnt > 0:
+            badge = f"🔴 {unsubmitted_cnt} ta topshiriq"
+        else:
+            badge = f"🟢 {len(tlist)} ta bajarilgan"
+
+        label = f"📚 {sname[:34]} ({badge})"
+        builder.button(
+            text=label,
+            callback_data=f"hemis_task_subj:{sid}",
+        )
+
     builder.adjust(1)
     return builder.as_markup()
 

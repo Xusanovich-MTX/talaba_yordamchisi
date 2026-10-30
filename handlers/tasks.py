@@ -85,9 +85,16 @@ async def _send_hemis_upcoming_tasks(
         )
         return
 
-    unsubmitted = [t for t in all_tasks if str((t.get("taskStatus") or {}).get("code") or "") == "11"]
     sem_name = str(semester.get("name") or "")
+    if not all_tasks:
+        await message.answer(
+            f"🎉 <b>HEMIS: Topshiriqlar ({sem_name})</b>\n\n"
+            "✅ Sizda joriy semestr uchun berilgan topshiriqlar mavjud emas!",
+            reply_markup=main_menu_kb(user),
+        )
+        return
 
+    unsubmitted = [t for t in all_tasks if str((t.get("taskStatus") or {}).get("code") or "") == "11"]
     summary_lines = [
         f"📝 <b>HEMIS: Topshiriqlar ({sem_name})</b>",
         "",
@@ -131,9 +138,22 @@ async def back_to_task_subjects(callback: CallbackQuery, session: AsyncSession):
         )
         return
 
-    unsubmitted = [t for t in all_tasks if str((t.get("taskStatus") or {}).get("code") or "") == "11"]
     sem_name = str(semester.get("name") or "")
+    if not all_tasks:
+        try:
+            await callback.message.edit_text(
+                f"🎉 <b>HEMIS: Topshiriqlar ({sem_name})</b>\n\n"
+                "✅ Sizda joriy semestr uchun berilgan topshiriqlar mavjud emas!",
+            )
+        except Exception:
+            await callback.message.answer(
+                f"🎉 <b>HEMIS: Topshiriqlar ({sem_name})</b>\n\n"
+                "✅ Sizda joriy semestr uchun berilgan topshiriqlar mavjud emas!",
+                reply_markup=main_menu_kb(user),
+            )
+        return
 
+    unsubmitted = [t for t in all_tasks if str((t.get("taskStatus") or {}).get("code") or "") == "11"]
     summary_lines = [
         f"📝 <b>HEMIS: Topshiriqlar ({sem_name})</b>",
         "",
