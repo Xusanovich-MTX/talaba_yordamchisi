@@ -427,3 +427,162 @@ def format_upcoming_tasks(
         blocks.append("\n".join(lines))
 
     return "\n".join(header) + "\n" + "\n\n".join(blocks)
+
+
+async def fetch_task_detail(
+    api_url: str,
+    session_data: dict[str, str],
+    task_id: int | str,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    parsed = urlsplit(api_url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise HemisScheduleError("The selected HEMIS API URL is invalid.")
+
+    current_session = dict(session_data)
+    access_token = current_session.get("access_token")
+    if not access_token:
+        raise HemisSessionExpired("The HEMIS access token is missing.")
+
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as client:
+        url = f"{api_url.rstrip('/')}/education/task-detail"
+        params = {"task": str(task_id)}
+        status, payload = await _request(
+            client,
+            "GET",
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            params=params,
+        )
+        if status == 401:
+            refresh_token = current_session.get("refresh_token")
+            if not refresh_token:
+                raise HemisSessionExpired("The HEMIS session expired.")
+            refresh_status, refresh_payload = await _request(
+                client,
+                "POST",
+                f"{api_url.rstrip('/')}/auth/refresh-token",
+                headers={"X-Refresh-Token": refresh_token},
+            )
+            refresh_data = (
+                refresh_payload.get("data")
+                if isinstance(refresh_payload, dict)
+                else None
+            )
+            if (
+                refresh_status >= 400
+                or not isinstance(refresh_data, dict)
+                or not refresh_data.get("token")
+            ):
+                raise HemisSessionExpired("The HEMIS session expired.")
+            access_token = str(refresh_data["token"])
+            current_session["access_token"] = access_token
+            current_session["refresh_token"] = str(
+                refresh_data.get("refresh_token") or refresh_token
+            )
+            status, payload = await _request(
+                client,
+                "GET",
+                url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                params=params,
+            )
+        if status == 401:
+            raise HemisSessionExpired("The HEMIS session expired.")
+        if status >= 400:
+            err = (
+                payload.get("error")
+                if isinstance(payload, dict)
+                else f"HEMIS returned HTTP {status}."
+            )
+            raise HemisScheduleError(str(err or f"HEMIS returned HTTP {status}."))
+
+        data = payload.get("data") if isinstance(payload, dict) else {}
+        return data if isinstance(data, dict) else {}, current_session
+
+
+async def upload_hemis_task(
+    api_url: str,
+    session_data: dict[str, str],
+    task_id: int | str,
+    file_bytes: bytes,
+    filename: str,
+    comment: str = "",
+) -> tuple[dict[str, Any], dict[str, str]]:
+    parsed = urlsplit(api_url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise HemisScheduleError("The selected HEMIS API URL is invalid.")
+
+    current_session = dict(session_data)
+    access_token = current_session.get("access_token")
+    if not access_token:
+        raise HemisSessionExpired("The HEMIS access token is missing.")
+
+    upload_url = f"{api_url.rstrip('/')}/education/task-upload"
+    params = {"task": str(task_id)}
+
+    timeout = aiohttp.ClientTimeout(total=60)
+    async with aiohttp.ClientSession(timeout=timeout) as client:
+        async def post_upload(token: str) -> tuple[int, Any]:
+            form = aiohttp.FormData()
+            form.add_field("filename", file_bytes, filename=filename)
+            if comment:
+                form.add_field("comment", comment)
+            async with client.post(
+                upload_url,
+                headers={"Authorization": f"Bearer {token}"},
+                params=params,
+                data=form,
+            ) as response:
+                try:
+                    payload = await response.json(content_type=None)
+                except (aiohttp.ContentTypeError, ValueError):
+                    payload = None
+                return response.status, payload
+
+        try:
+            status, payload = await post_upload(access_token)
+            if status == 401:
+                refresh_token = current_session.get("refresh_token")
+                if not refresh_token:
+                    raise HemisSessionExpired("The HEMIS session expired.")
+                refresh_status, refresh_payload = await _request(
+                    client,
+                    "POST",
+                    f"{api_url.rstrip('/')}/auth/refresh-token",
+                    headers={"X-Refresh-Token": refresh_token},
+                )
+                refresh_data = (
+                    refresh_payload.get("data")
+                    if isinstance(refresh_payload, dict)
+                    else None
+                )
+                if (
+                    refresh_status >= 400
+                    or not isinstance(refresh_data, dict)
+                    or not refresh_data.get("token")
+                ):
+                    raise HemisSessionExpired("The HEMIS session expired.")
+                access_token = str(refresh_data["token"])
+                current_session["access_token"] = access_token
+                current_session["refresh_token"] = str(
+                    refresh_data.get("refresh_token") or refresh_token
+                )
+                status, payload = await post_upload(access_token)
+
+            if status == 401:
+                raise HemisSessionExpired("The HEMIS session expired.")
+
+            if isinstance(payload, dict):
+                if not payload.get("success", False) or status >= 400:
+                    err_msg = payload.get("error") or f"HEMIS returned HTTP {status}."
+                    raise HemisScheduleError(str(err_msg))
+                data = payload.get("data")
+                return data if isinstance(data, dict) else payload, current_session
+
+            if status >= 400:
+                raise HemisScheduleError(f"HEMIS returned HTTP {status}.")
+
+            return {}, current_session
+        except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+            raise HemisScheduleError("Could not reach HEMIS.") from error

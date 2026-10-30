@@ -19,10 +19,13 @@ from database.models import Base, User
 from handlers import tasks as tasks_handler
 from services.hemis_schedule import HemisScheduleError, HemisSessionExpired
 from services.hemis_tasks import (
+    fetch_task_detail,
     fetch_upcoming_tasks,
     format_upcoming_tasks,
     select_upcoming_tasks,
+    upload_hemis_task,
 )
+from keyboards.inline import is_task_submittable, task_subject_detail_kb, subject_task_detail_back_kb
 
 
 API_URL = "https://student.example.uz/rest/v1/"
@@ -226,6 +229,161 @@ class HemisTasksTests(unittest.IsolatedAsyncioTestCase):
             detail_reply = cb.message.edit_text.await_args.args[0]
             self.assertIn("Algoritmlar — Topshiriqlar", detail_reply)
             self.assertIn("1-ish", detail_reply)
+        finally:
+            await storage.close()
+            await engine.dispose()
+
+
+
+    def test_is_task_submittable(self):
+        # 1. New task (no activity, code 11) -> True
+        t1 = make_task(1, name="Task 1", deadline=NOW + 1000)
+        self.assertTrue(is_task_submittable(t1))
+
+        # 2. Graded task (mark=5) -> False
+        t2 = make_task(2, name="Task 2", deadline=NOW + 1000, activity={"mark": 5})
+        self.assertFalse(is_task_submittable(t2))
+
+        # 3. Status 13 (Baholandi) -> False
+        t3 = make_task(3, name="Task 3", deadline=NOW + 1000, status_code="13")
+        self.assertFalse(is_task_submittable(t3))
+
+        # 4. Attempt limit reached -> False
+        t4 = make_task(4, name="Task 4", deadline=NOW + 1000, attempt_count=2)
+        self.assertFalse(is_task_submittable(t4))
+
+        # 5. Submitted once but attempt limit is 2 -> True (can resubmit)
+        t5 = make_task(5, name="Task 5", deadline=NOW + 1000, status_code="12", attempt_count=1)
+        self.assertTrue(is_task_submittable(t5))
+
+    def test_task_subject_detail_kb_generates_upload_buttons(self):
+        tasks = [
+            make_task(101, name="1-Mustaqil ish", deadline=NOW + 1000),
+            make_task(102, name="2-Mustaqil ish", deadline=NOW + 1000),
+        ]
+        kb = task_subject_detail_kb(tasks)
+        buttons = [btn for row in kb.inline_keyboard for btn in row]
+        callbacks = [btn.callback_data for btn in buttons]
+        self.assertIn("hemis_task_up:101", callbacks)
+        self.assertIn("hemis_task_up:102", callbacks)
+        self.assertIn("hemis_tasks_back", callbacks)
+
+    async def test_fetch_task_detail_success(self):
+        with patch("services.hemis_tasks._request") as req_mock:
+            req_mock.return_value = (200, {"success": True, "data": {"id": 123, "name": "Test Task"}})
+            data, session = await fetch_task_detail(API_URL, SESSION, 123)
+            self.assertEqual(data["id"], 123)
+            self.assertEqual(data["name"], "Test Task")
+
+    async def test_upload_hemis_task_success(self):
+        with patch("aiohttp.ClientSession.post") as post_mock:
+            mock_resp = AsyncMock()
+            mock_resp.status = 200
+            mock_resp.json = AsyncMock(return_value={
+                "success": True,
+                "error": None,
+                "data": {"id": 999, "comment": "uploaded"}
+            })
+            post_mock.return_value.__aenter__.return_value = mock_resp
+
+            data, updated_session = await upload_hemis_task(
+                API_URL,
+                SESSION,
+                123,
+                b"dummy content",
+                "mustaqil.docx",
+                comment="Izoh",
+            )
+            self.assertEqual(data["id"], 999)
+
+    async def test_upload_hemis_task_handles_error(self):
+        with patch("aiohttp.ClientSession.post") as post_mock:
+            mock_resp = AsyncMock()
+            mock_resp.status = 400
+            mock_resp.json = AsyncMock(return_value={
+                "success": False,
+                "error": "Topshiriqni bajarish muddati tugagan"
+            })
+            post_mock.return_value.__aenter__.return_value = mock_resp
+
+            with self.assertRaises(HemisScheduleError) as ctx:
+                await upload_hemis_task(
+                    API_URL,
+                    SESSION,
+                    123,
+                    b"dummy content",
+                    "mustaqil.docx",
+                )
+            self.assertIn("Topshiriqni bajarish muddati tugagan", str(ctx.exception))
+
+    async def test_task_upload_fsm_flow(self):
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        storage = MemoryStorage()
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            async with sessions() as session:
+                user = User(
+                    telegram_id=900002,
+                    full_name="Student 900002",
+                    hemis_api_url=API_URL,
+                    hemis_session_ciphertext="encrypted-session",
+                    timezone="Asia/Tashkent",
+                )
+                session.add(user)
+                await session.commit()
+
+            state = FSMContext(
+                storage=storage,
+                key=StorageKey(bot_id=1, chat_id=900002, user_id=900002),
+            )
+
+            cb = SimpleNamespace(
+                data="hemis_task_up:555",
+                from_user=SimpleNamespace(id=900002),
+                answer=AsyncMock(),
+                message=SimpleNamespace(answer=AsyncMock()),
+            )
+
+            # 1. Ask file upload
+            with (
+                patch.object(tasks_handler, "decrypt_hemis_session", return_value=dict(SESSION)),
+                patch.object(
+                    tasks_handler,
+                    "fetch_task_detail",
+                    new=AsyncMock(return_value=({"id": 555, "name": "Lab 1", "subject": {"name": "Fizika"}}, dict(SESSION))),
+                ),
+            ):
+                async with sessions() as session:
+                    await tasks_handler.ask_task_upload_file(cb, state, session)
+
+            cb.message.answer.assert_awaited_once()
+            self.assertIn("Topshiriqni HEMIS tizimiga yuklash", cb.message.answer.await_args.args[0])
+            self.assertEqual(await state.get_state(), tasks_handler.UploadHemisTask.waiting_for_file.state)
+
+            # 2. Upload file
+            doc_msg = SimpleNamespace(
+                from_user=SimpleNamespace(id=900002),
+                document=SimpleNamespace(file_size=1024, file_name="lab1.pdf"),
+                caption=None,
+                bot=SimpleNamespace(download=AsyncMock()),
+                answer=AsyncMock(return_value=SimpleNamespace(edit_text=AsyncMock())),
+            )
+
+            with (
+                patch.object(tasks_handler, "decrypt_hemis_session", return_value=dict(SESSION)),
+                patch.object(
+                    tasks_handler,
+                    "upload_hemis_task",
+                    new=AsyncMock(return_value=({"id": 1}, dict(SESSION))),
+                ),
+            ):
+                async with sessions() as session:
+                    await tasks_handler.handle_task_upload_document(doc_msg, state, session)
+
+            self.assertIsNone(await state.get_state())
         finally:
             await storage.close()
             await engine.dispose()

@@ -110,19 +110,59 @@ def resource_pages_kb(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def is_task_submittable(task: dict[str, Any]) -> bool:
+    activity = task.get("studentTaskActivity")
+    if isinstance(activity, dict) and activity.get("mark") is not None:
+        return False
+
+    status_obj = task.get("taskStatus") or {}
+    status_code = str(status_obj.get("code") or "")
+    if status_code == "13":
+        return False
+
+    attempt_limit = task.get("attempt_limit")
+    attempt_count = task.get("attempt_count")
+    if (
+        isinstance(attempt_limit, int)
+        and isinstance(attempt_count, int)
+        and attempt_count >= attempt_limit
+    ):
+        return False
+
+    return True
+
+
 def subject_task_detail_back_kb(
-    semester_code: str, subject_id: int | str
+    semester_code: str,
+    subject_id: int | str,
+    tasks: list[dict[str, Any]] | None = None,
 ) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔙 Fanga qaytish",
-                    callback_data=f"hemis_res_card:{semester_code}:{subject_id}",
-                )
-            ]
+    builder = InlineKeyboardBuilder()
+    if tasks:
+        submittables = [
+            (idx, t) for idx, t in enumerate(tasks, 1)
+            if is_task_submittable(t) and t.get("id") is not None
         ]
+        for idx, task in submittables:
+            tid = task["id"]
+            if len(submittables) == 1:
+                label = "?? Topshiriqni yuklash"
+            else:
+                name = str(task.get("name") or f"{idx}-topshiriq")[:20].strip()
+                label = f"?? {idx}. {name} ? topshirish"
+            builder.button(
+                text=label,
+                callback_data=f"hemis_task_up:{tid}",
+            )
+        builder.adjust(1)
+
+    builder.row(
+        InlineKeyboardButton(
+            text="?? Fanga qaytish",
+            callback_data=f"hemis_res_card:{semester_code}:{subject_id}",
+        )
     )
+    return builder.as_markup()
 
 
 def gpa_semesters_kb(
@@ -252,14 +292,32 @@ def task_subjects_kb(
     return builder.as_markup()
 
 
-def task_subject_detail_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔙 Barcha fanlar topshiriqlariga qaytish",
-                    callback_data="hemis_tasks_back",
-                )
-            ]
+def task_subject_detail_kb(
+    tasks: list[dict[str, Any]] | None = None,
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if tasks:
+        submittables = [
+            (idx, t) for idx, t in enumerate(tasks, 1)
+            if is_task_submittable(t) and t.get("id") is not None
         ]
+        for idx, task in submittables:
+            tid = task["id"]
+            if len(submittables) == 1:
+                label = "?? Topshiriqni yuklash"
+            else:
+                name = str(task.get("name") or f"{idx}-topshiriq")[:20].strip()
+                label = f"?? {idx}. {name} ? topshirish"
+            builder.button(
+                text=label,
+                callback_data=f"hemis_task_up:{tid}",
+            )
+        builder.adjust(1)
+
+    builder.row(
+        InlineKeyboardButton(
+            text="?? Barcha fanlar topshiriqlariga qaytish",
+            callback_data="hemis_tasks_back",
+        )
     )
+    return builder.as_markup()

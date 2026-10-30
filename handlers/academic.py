@@ -691,7 +691,7 @@ async def show_subject_resources_tasks(
         timezone_name=user.timezone,
         semester_name=str(semester.get("name") or ""),
     )
-    kb = subject_task_detail_back_kb(sem_code, subj_id)
+    kb = subject_task_detail_back_kb(sem_code, subj_id, subj_tasks)
     try:
         await callback.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
     except Exception:
