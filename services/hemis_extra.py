@@ -115,6 +115,32 @@ async def _resolve_semester(
 
 # --- 1. DAVOMAT (ATTENDANCE) ---
 
+async def _fetch_enrolled_subjects(
+    authorized_get, params: dict[str, str] | None
+) -> list[dict[str, Any]]:
+    """HEMIS /education/subject-list orqali faqat talaba o'qiydigan (tanlagan) fanlarni filtrlaydi."""
+    subjects = await authorized_get("/education/subjects", params)
+    try:
+        enrolled = await authorized_get("/education/subject-list", params)
+        enrolled_ids = set()
+        if isinstance(enrolled, list):
+            for item in enrolled:
+                if not isinstance(item, dict):
+                    continue
+                cs = item.get("curriculumSubject") or {}
+                sid = (cs.get("subject") or {}).get("id")
+                if sid:
+                    enrolled_ids.add(sid)
+        if enrolled_ids:
+            return [
+                s for s in subjects
+                if isinstance(s, dict) and (s.get("subject") or {}).get("id") in enrolled_ids
+            ]
+    except Exception:
+        pass
+    return subjects
+
+
 async def fetch_attendance(
     api_url: str,
     session_data: dict[str, str],
@@ -130,7 +156,7 @@ async def fetch_attendance(
         params = {"semester": str(sem_code)} if sem_code is not None else None
         records = await authorized_get("/education/attendance", params)
         try:
-            subjects = await authorized_get("/education/subjects", params)
+            subjects = await _fetch_enrolled_subjects(authorized_get, params)
         except Exception:
             subjects = []
         semester_copy = dict(semester)
@@ -417,7 +443,7 @@ async def fetch_grades_overview(
         if sem_code is None:
             return semester, [], []
         params = {"semester": str(sem_code)}
-        subjects = await authorized_get("/education/subjects", params)
+        subjects = await _fetch_enrolled_subjects(authorized_get, params)
         tasks = await authorized_get("/education/task-list", params)
         return semester, subjects, tasks
 
@@ -584,7 +610,7 @@ async def fetch_semester_subjects(
         sem_code = semester.get("code") or semester.get("id")
         if sem_code is None:
             return semester, []
-        subjects = await authorized_get("/education/subjects", {"semester": str(sem_code)})
+        subjects = await _fetch_enrolled_subjects(authorized_get, {"semester": str(sem_code)})
         return semester, subjects
 
     return await _hemis_authorized_session(api_url, session_data, _run)

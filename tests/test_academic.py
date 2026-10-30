@@ -402,6 +402,28 @@ class AcademicFeaturesTests(unittest.IsolatedAsyncioTestCase):
             await storage.close()
             await engine.dispose()
 
+    async def test_fetch_enrolled_subjects_filters_unchosen(self):
+        from services.hemis_extra import _fetch_enrolled_subjects
+        all_subjs = [
+            {"subject": {"id": 1, "name": "Matematika"}},
+            {"subject": {"id": 2, "name": "Fizika (Tanlov - tanlanmagan)"}},
+            {"subject": {"id": 3, "name": "Informatika"}},
+        ]
+        enrolled_list = [
+            {"curriculumSubject": {"subject": {"id": 1, "name": "Matematika"}}},
+            {"curriculumSubject": {"subject": {"id": 3, "name": "Informatika"}}},
+        ]
+        async def mock_get(path, params=None):
+            if path == "/education/subjects":
+                return all_subjs
+            if path == "/education/subject-list":
+                return enrolled_list
+            return []
+
+        res = await _fetch_enrolled_subjects(mock_get, {"semester": "17"})
+        self.assertEqual(len(res), 2)
+        self.assertEqual([s["subject"]["id"] for s in res], [1, 3])
+
 
 if __name__ == "__main__":
     unittest.main()
