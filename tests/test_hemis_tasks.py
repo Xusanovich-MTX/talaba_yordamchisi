@@ -69,7 +69,7 @@ def make_task(
         "max_ball": 5,
         "attempt_limit": 2,
         "attempt_count": attempt_count,
-        "subject": {"name": subject_name},
+        "subject": {"id": 1, "name": subject_name},
         "employee": {"name": "Ali Valiyev"},
         "taskStatus": {"code": status_code, "name": status_name},
         "studentTaskActivity": activity,
@@ -173,15 +173,18 @@ class HemisTasksTests(unittest.IsolatedAsyncioTestCase):
                 make_task(3, name="3-ish", deadline=NOW + 86400 * 9),
             ]
 
+            sample_subjects = [
+                {"subject": {"id": 1, "name": "Algoritmlar"}},
+            ]
             with (
                 patch.object(
                     tasks_handler, "decrypt_hemis_session", return_value=dict(SESSION)
                 ),
                 patch.object(
                     tasks_handler,
-                    "fetch_upcoming_tasks",
+                    "fetch_grades_overview",
                     new=AsyncMock(
-                        return_value=({"name": "7-semestr"}, sample_tasks, dict(SESSION))
+                        return_value=({"name": "7-semestr"}, sample_subjects, sample_tasks, dict(SESSION))
                     ),
                 ) as fetch_mock,
             ):
@@ -189,14 +192,40 @@ class HemisTasksTests(unittest.IsolatedAsyncioTestCase):
                     await tasks_handler.tasks_menu(message, session, state)
 
             fetch_mock.assert_awaited_once_with(
-                API_URL, SESSION, "Asia/Tashkent", limit=3
+                API_URL, SESSION, "Asia/Tashkent"
             )
             reply = "\n".join(
                 call.args[0] for call in message.answer.await_args_list
             )
-            self.assertIn("1-ish", reply)
-            self.assertIn("2-ish", reply)
-            self.assertIn("3-ish", reply)
+            self.assertIn("HEMIS: Topshiriqlar", reply)
+            self.assertIn("Jami topshiriqlar:", reply)
+
+            # Test clicking a subject button to see its tasks
+            cb = SimpleNamespace(
+                data="hemis_task_subj:1",
+                from_user=SimpleNamespace(id=900001),
+                answer=AsyncMock(),
+                message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+            )
+            with (
+                patch.object(
+                    tasks_handler, "decrypt_hemis_session", return_value=dict(SESSION)
+                ),
+                patch.object(
+                    tasks_handler,
+                    "fetch_grades_overview",
+                    new=AsyncMock(
+                        return_value=({"name": "7-semestr"}, sample_subjects, sample_tasks, dict(SESSION))
+                    ),
+                ),
+            ):
+                async with sessions() as session:
+                    await tasks_handler.show_subject_tasks_callback(cb, session)
+
+            cb.message.edit_text.assert_awaited_once()
+            detail_reply = cb.message.edit_text.await_args.args[0]
+            self.assertIn("Algoritmlar — Topshiriqlar", detail_reply)
+            self.assertIn("1-ish", detail_reply)
         finally:
             await storage.close()
             await engine.dispose()

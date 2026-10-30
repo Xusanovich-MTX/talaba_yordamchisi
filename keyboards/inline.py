@@ -151,3 +151,54 @@ def schedule_actions_kb(schedule_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🗑 O'chirish", callback_data=f"sched_del:{schedule_id}")
     return builder.as_markup()
+
+
+def task_subjects_kb(
+    subjects: list[dict[str, Any]],
+    tasks: list[dict[str, Any]],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+
+    task_map: dict[Any, list[dict[str, Any]]] = {}
+    for t in tasks:
+        sid = (t.get("subject") or {}).get("id")
+        if sid is not None:
+            task_map.setdefault(sid, []).append(t)
+
+    for item in subjects:
+        s_obj = item.get("subject") or {}
+        sid = s_obj.get("id")
+        if sid is None:
+            continue
+        sname = str(s_obj.get("name") or "Fan")
+        tlist = task_map.get(sid, [])
+        unsubmitted_cnt = sum(
+            1 for t in tlist if str((t.get("taskStatus") or {}).get("code") or "") == "11"
+        )
+        if unsubmitted_cnt > 0:
+            badge = f"🔴 {unsubmitted_cnt} ta topshiriq"
+        elif len(tlist) > 0:
+            badge = f"🟢 {len(tlist)} ta bajarilgan"
+        else:
+            badge = "0 ta"
+
+        label = f"📚 {sname[:32]} ({badge})"
+        builder.button(
+            text=label,
+            callback_data=f"hemis_task_subj:{sid}",
+        )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def task_subject_detail_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔙 Barcha fanlar topshiriqlariga qaytish",
+                    callback_data="hemis_tasks_back",
+                )
+            ]
+        ]
+    )

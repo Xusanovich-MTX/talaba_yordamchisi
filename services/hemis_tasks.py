@@ -245,6 +245,114 @@ def _format_time_remaining(diff_seconds: float) -> str:
     return f"⏳ {max(1, minutes)} daqiqa qoldi"
 
 
+def format_single_task_block(
+    task: dict[str, Any],
+    idx: int,
+    local_timezone,
+    current_ts: float,
+) -> str:
+    subject = task.get("subject")
+    subject_name = (
+        str(subject.get("name") or "Noma'lum fan")
+        if isinstance(subject, dict)
+        else "Noma'lum fan"
+    )
+    title = str(task.get("name") or "Topshiriq").strip()
+    comment = str(task.get("comment") or "").strip()
+
+    status_obj = task.get("taskStatus") or {}
+    status_code = str(status_obj.get("code") or "")
+    status_name = str(status_obj.get("name") or "")
+
+    activity = task.get("studentTaskActivity") or {}
+    mark = activity.get("mark")
+
+    if status_code == "13" or mark is not None:
+        status_badge = f"🟢 Baholandi: {mark} ball" if mark is not None else "🟢 Baholandi"
+    elif status_code == "12":
+        status_badge = "🔵 Topshirildi (tekshirilmoqda)"
+    else:
+        status_badge = "🔴 Bajarilmagan (yuklash kerak)"
+
+    lines = [f"<b>{idx}. 📌 {escape(title)}</b>"]
+    lines.append(f"   • Holati: <b>{status_badge}</b>")
+
+    if comment and comment.casefold() != title.casefold():
+        lines.append(f"   • Izoh: <i>{escape(comment)}</i>")
+
+    employee = task.get("employee")
+    if isinstance(employee, dict) and employee.get("name"):
+        lines.append(f"   • O'qituvchi: {escape(str(employee['name']))}")
+
+    max_ball = task.get("max_ball")
+    attempt_limit = task.get("attempt_limit")
+    meta_parts = []
+    if max_ball is not None:
+        meta_parts.append(f"Maks. ball: <b>{escape(str(max_ball))}</b>")
+    if attempt_limit is not None:
+        used = task.get("attempt_count") or 0
+        meta_parts.append(f"Urinish: <b>{escape(str(used))}/{escape(str(attempt_limit))}</b>")
+    if meta_parts:
+        lines.append("   • " + " | ".join(meta_parts))
+
+    deadline_ts = _timestamp(task.get("deadline"))
+    if deadline_ts is not None:
+        deadline_dt = datetime.fromtimestamp(deadline_ts, local_timezone)
+        time_left = _format_time_remaining(deadline_ts - current_ts)
+        lines.append(f"   • 📅 Muddat: <b>{deadline_dt:%d.%m.%Y %H:%M}</b> ({time_left})")
+
+    files = task.get("files")
+    if isinstance(files, list) and files:
+        file_links = []
+        for file_item in files:
+            if not isinstance(file_item, dict):
+                continue
+            fname = str(file_item.get("name") or "Fayl").strip()
+            furl = str(file_item.get("url") or "").strip()
+            if furl.startswith(("https://", "http://")):
+                file_links.append(f'<a href="{escape(furl, quote=True)}">📎 {escape(fname)}</a>')
+            else:
+                file_links.append(f"📎 {escape(fname)}")
+        if file_links:
+            lines.append("   • " + ", ".join(file_links))
+
+    return "\n".join(lines)
+
+
+def format_subject_tasks_detail(
+    subject_name: str,
+    tasks: list[dict[str, Any]],
+    timezone_name: str = "Asia/Tashkent",
+    *,
+    semester_name: str = "",
+    now: float | None = None,
+) -> str:
+    local_timezone = _local_timezone(timezone_name)
+    current_ts = now if now is not None else datetime.now(local_timezone).timestamp()
+
+    lines = [f"📚 <b>{escape(subject_name)} — Topshiriqlar</b>"]
+    if semester_name:
+        lines.append(escape(str(semester_name)))
+    lines.append("")
+
+    if not tasks:
+        lines.append("✅ Ushbu fandan berilgan topshiriqlar mavjud emas!")
+        return "\n".join(lines)
+
+    unsubmitted = [t for t in tasks if str((t.get("taskStatus") or {}).get("code") or "") == "11"]
+    lines.append(
+        f"📊 <b>Jami topshiriqlar:</b> {len(tasks)} ta\n"
+        f"   • 🔴 Bajarilmagan: <b>{len(unsubmitted)} ta</b> | 🟢 Bajarilgan/Baholangan: <b>{len(tasks) - len(unsubmitted)} ta</b>\n"
+    )
+
+    blocks: list[str] = []
+    for idx, task in enumerate(tasks, 1):
+        blocks.append(format_single_task_block(task, idx, local_timezone, current_ts))
+
+    lines.append("\n\n".join(blocks))
+    return "\n".join(lines)
+
+
 def format_upcoming_tasks(
     tasks: list[dict[str, Any]],
     timezone_name: str = "Asia/Tashkent",

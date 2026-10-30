@@ -2,7 +2,7 @@ from datetime import datetime
 import logging
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InaccessibleMessage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select
@@ -11,10 +11,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database.models import Task, User
 from handlers.schedule import _hemis_connection_error, _split_telegram_text
 from keyboards.reply import main_menu_kb, cancel_kb
-from keyboards.inline import task_actions_kb
+from keyboards.inline import (
+    task_actions_kb,
+    task_subject_detail_kb,
+    task_subjects_kb,
+)
+from services.hemis_extra import fetch_grades_overview
 from services.hemis_schedule import HemisScheduleError, HemisSessionExpired
 from services.hemis_session import decrypt_hemis_session, encrypt_hemis_session
-from services.hemis_tasks import fetch_upcoming_tasks, format_upcoming_tasks
+from services.hemis_tasks import (
+    fetch_upcoming_tasks,
+    format_subject_tasks_detail,
+    format_upcoming_tasks,
+)
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -47,8 +56,8 @@ async def _send_hemis_upcoming_tasks(
         return
 
     try:
-        semester, upcoming_tasks, updated_session = await fetch_upcoming_tasks(
-            user.hemis_api_url, session_data, user.timezone, limit=3
+        semester, subjects, all_tasks, updated_session = await fetch_grades_overview(
+            user.hemis_api_url, session_data, user.timezone
         )
         if updated_session != session_data:
             user.hemis_session_ciphertext = encrypt_hemis_session(updated_session)
@@ -76,15 +85,132 @@ async def _send_hemis_upcoming_tasks(
         )
         return
 
-    text = format_upcoming_tasks(
-        upcoming_tasks,
-        user.timezone,
+    unsubmitted = [t for t in all_tasks if str((t.get("taskStatus") or {}).get("code") or "") == "11"]
+    sem_name = str(semester.get("name") or "")
+
+    summary_lines = [
+        f"📝 <b>HEMIS: Topshiriqlar ({sem_name})</b>",
+        "",
+        f"📌 <b>Jami topshiriqlar:</b> {len(all_tasks)} ta",
+        f"   • 🔴 Bajarilmagan: <b>{len(unsubmitted)} ta</b>",
+        f"   • 🟢 Bajarilgan/Baholangan: <b>{len(all_tasks) - len(unsubmitted)} ta</b>",
+        "",
+        "👇 <b>Kerakli fanni tanlang</b> — o'sha fandan berilgan topshiriqlar, ularning holati, muddati va fayllarini alohida ko'rasiz:",
+    ]
+    summary_text = "\n".join(summary_lines)
+    kb = task_subjects_kb(subjects, all_tasks)
+    await message.answer(summary_text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "hemis_tasks_back")
+async def back_to_task_subjects(callback: CallbackQuery, session: AsyncSession):
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        await callback.answer("Topshiriqlar bo'limini qayta oching.", show_alert=True)
+        return
+
+    user = await session.scalar(
+        select(User).where(User.telegram_id == callback.from_user.id)
+    )
+    if not user or not user.hemis_session_ciphertext:
+        await callback.answer("Avval HEMIS tizimiga kiring.", show_alert=True)
+        return
+
+    await callback.answer("Fanlar yuklanmoqda…")
+    try:
+        session_data = decrypt_hemis_session(user.hemis_session_ciphertext)
+        semester, subjects, all_tasks, updated_session = await fetch_grades_overview(
+            user.hemis_api_url, session_data, user.timezone
+        )
+        if updated_session != session_data:
+            user.hemis_session_ciphertext = encrypt_hemis_session(updated_session)
+            await session.commit()
+    except Exception:
+        await callback.message.answer(
+            "Topshiriqlarni hozir olib bo'lmadi. 📝 Topshiriqlar tugmasini qayta bosing.",
+            reply_markup=main_menu_kb(),
+        )
+        return
+
+    unsubmitted = [t for t in all_tasks if str((t.get("taskStatus") or {}).get("code") or "") == "11"]
+    sem_name = str(semester.get("name") or "")
+
+    summary_lines = [
+        f"📝 <b>HEMIS: Topshiriqlar ({sem_name})</b>",
+        "",
+        f"📌 <b>Jami topshiriqlar:</b> {len(all_tasks)} ta",
+        f"   • 🔴 Bajarilmagan: <b>{len(unsubmitted)} ta</b>",
+        f"   • 🟢 Bajarilgan/Baholangan: <b>{len(all_tasks) - len(unsubmitted)} ta</b>",
+        "",
+        "👇 <b>Kerakli fanni tanlang</b> — o'sha fandan berilgan topshiriqlar, ularning holati, muddati va fayllarini alohida ko'rasiz:",
+    ]
+    summary_text = "\n".join(summary_lines)
+    kb = task_subjects_kb(subjects, all_tasks)
+    try:
+        await callback.message.edit_text(summary_text, reply_markup=kb)
+    except Exception:
+        await callback.message.answer(summary_text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("hemis_task_subj:"))
+async def show_subject_tasks_callback(callback: CallbackQuery, session: AsyncSession):
+    prefix, _, subj_id_str = (callback.data or "").partition(":")
+    if prefix != "hemis_task_subj" or not subj_id_str.isdecimal():
+        await callback.answer("Noto'g'ri so'rov.", show_alert=True)
+        return
+    subj_id = int(subj_id_str)
+
+    if callback.message is None or isinstance(callback.message, InaccessibleMessage):
+        await callback.answer("Topshiriqlar bo'limini qayta oching.", show_alert=True)
+        return
+
+    user = await session.scalar(
+        select(User).where(User.telegram_id == callback.from_user.id)
+    )
+    if not user or not user.hemis_session_ciphertext:
+        await callback.answer("Avval HEMIS tizimiga kiring.", show_alert=True)
+        return
+
+    await callback.answer("Topshiriqlar yuklanmoqda…")
+    try:
+        session_data = decrypt_hemis_session(user.hemis_session_ciphertext)
+        semester, subjects, all_tasks, updated_session = await fetch_grades_overview(
+            user.hemis_api_url, session_data, user.timezone
+        )
+        if updated_session != session_data:
+            user.hemis_session_ciphertext = encrypt_hemis_session(updated_session)
+            await session.commit()
+    except Exception:
+        await callback.message.answer(
+            "Topshiriqlarni hozir olib bo'lmadi. Birozdan keyin qayta urinib ko'ring."
+        )
+        return
+
+    # Filter tasks and find subject name
+    subj_tasks = [t for t in all_tasks if (t.get("subject") or {}).get("id") == subj_id]
+    subject_name = "Fan"
+    for s_item in subjects:
+        s_obj = s_item.get("subject") or {}
+        if s_obj.get("id") == subj_id:
+            subject_name = str(s_obj.get("name") or "Fan")
+            break
+    if not subj_tasks and subject_name == "Fan":
+        for t in all_tasks:
+            s_obj = t.get("subject") or {}
+            if s_obj.get("id") == subj_id:
+                subject_name = str(s_obj.get("name") or "Fan")
+                break
+
+    text = format_subject_tasks_detail(
+        subject_name,
+        subj_tasks,
+        timezone_name=user.timezone,
         semester_name=str(semester.get("name") or ""),
     )
-    chunks = _split_telegram_text(text)
-    for index, chunk in enumerate(chunks):
-        markup = main_menu_kb(user) if index == len(chunks) - 1 else None
-        await message.answer(chunk, reply_markup=markup, disable_web_page_preview=True)
+    kb = task_subject_detail_kb()
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, disable_web_page_preview=True)
 
 
 # --- Topshiriqlar bo'limiga kirish ---
