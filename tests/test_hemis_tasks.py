@@ -310,6 +310,30 @@ class HemisTasksTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(data["id"], 999)
 
+    async def test_upload_hemis_task_preserves_spaces_in_filename(self):
+        with patch("aiohttp.ClientSession.post") as post_mock:
+            mock_resp = AsyncMock()
+            mock_resp.status = 200
+            mock_resp.json = AsyncMock(return_value={
+                "success": True,
+                "error": None,
+                "data": {"id": 1001}
+            })
+            post_mock.return_value.__aenter__.return_value = mock_resp
+
+            await upload_hemis_task(
+                API_URL,
+                SESSION,
+                123,
+                b"dummy docx",
+                "3 - amaliy topshiriq.docx",
+            )
+            form = post_mock.call_args.kwargs["data"]
+            writer = form()
+            disposition = writer._parts[0][0].headers["Content-Disposition"]
+            self.assertIn('filename="3 - amaliy topshiriq.docx"', disposition)
+            self.assertNotIn("%20", disposition)
+
     async def test_upload_hemis_task_rejects_zip_format(self):
         with self.assertRaises(HemisScheduleError) as ctx:
             await upload_hemis_task(

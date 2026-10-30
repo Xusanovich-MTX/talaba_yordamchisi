@@ -4,7 +4,7 @@ import asyncio
 from datetime import date, datetime
 from html import escape
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -554,8 +554,15 @@ async def upload_hemis_task(
     timeout = aiohttp.ClientTimeout(total=60)
     async with aiohttp.ClientSession(timeout=timeout) as client:
         async def post_upload(token: str) -> tuple[int, Any]:
-            form = aiohttp.FormData()
-            form.add_field("filename", file_bytes, filename=filename)
+            form = aiohttp.FormData(quote_fields=False)
+            clean_name = (
+                unquote(str(filename or "topshiriq.pdf"))
+                .strip()
+                .replace('"', "")
+                .replace("\r", "")
+                .replace("\n", "")
+            )
+            form.add_field("filename", file_bytes, filename=clean_name)
             if comment:
                 form.add_field("comment", comment)
             async with client.post(

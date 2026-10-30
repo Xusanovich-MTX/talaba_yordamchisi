@@ -1,3 +1,4 @@
+from urllib.parse import unquote
 import os
 import tempfile
 import io
@@ -678,8 +679,8 @@ async def handle_task_upload_document(
         )
         return
 
-    raw_filename = doc.file_name or f"topshiriq_{task_id}.{file_ext}"
-    clean_filename = "".join(c for c in raw_filename if c.isalnum() or c in "._- ").strip() or f"topshiriq_{task_id}.{file_ext}"
+    raw_filename = unquote(doc.file_name or "").strip() or f"topshiriq_{task_id}.{file_ext}"
+    clean_filename = "".join(c for c in raw_filename if c.isalnum() or c in "._- ()'ʻʼ`").strip() or f"topshiriq_{task_id}.{file_ext}"
 
     # Write to temp file
     temp_dir = tempfile.gettempdir()
