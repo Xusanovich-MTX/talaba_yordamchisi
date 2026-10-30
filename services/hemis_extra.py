@@ -1,6 +1,7 @@
 """Fetch and format attendance, grades/performance, exams, study resources, morning motivation, and GPA from HEMIS."""
 
 import asyncio
+import re
 from datetime import date, datetime
 from html import escape
 from typing import Any
@@ -609,10 +610,71 @@ async def fetch_subject_resources(
     return resources, updated_session
 
 
+RESOURCE_CATEGORY_LABELS = {
+    "lecture": "📖 Ma'ruza",
+    "lab": "🧪 Laboratoriya",
+    "practice": "💻 Amaliyot",
+    "seminar": "👥 Seminar",
+    "coursework": "📄 Kurs ishi",
+    "independent": "📝 Mustaqil ta'lim",
+    "other": "📁 Boshqa materiallar",
+    "all": "📁 Barcha fayllar",
+}
+
+
+def classify_resource_category(res: dict[str, Any]) -> str:
+    training = res.get("trainingType")
+    tname = ""
+    if isinstance(training, dict):
+        tname = str(training.get("name") or "")
+    elif isinstance(training, str):
+        tname = training
+
+    title = str(res.get("title") or "")
+    combined = f"{tname} {title}".lower()
+    norm = combined.replace("'", "").replace("‘", "").replace("’", "").replace("`", "")
+
+    if "maruza" in norm or "lekts" in norm or "lecture" in norm:
+        return "lecture"
+    if "kurs ish" in norm or "kurs loyiha" in norm or "coursework" in norm or "kurs_ish" in norm:
+        return "coursework"
+    if "laborator" in norm or "lobarator" in norm or re.search(r"\blab\b|\blab\.", norm):
+        return "lab"
+    if "amaliy" in norm or "practic" in norm or "praktik" in norm:
+        return "practice"
+    if "seminar" in norm:
+        return "seminar"
+    if "mustaqil" in norm:
+        return "independent"
+    return "other"
+
+
+def group_resources_by_category(
+    resources: list[dict[str, Any]]
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]]:
+    grouped: dict[str, list[dict[str, Any]]] = {
+        "lecture": [],
+        "lab": [],
+        "practice": [],
+        "seminar": [],
+        "coursework": [],
+        "independent": [],
+        "other": [],
+    }
+    for res in resources:
+        cat = classify_resource_category(res)
+        grouped.setdefault(cat, []).append(res)
+
+    counts = {cat: len(items) for cat, items in grouped.items()}
+    counts["all"] = len(resources)
+    return grouped, counts
+
+
 def format_subject_resources(
     resources: list[dict[str, Any]],
     *,
     subject_name: str = "",
+    category_title: str = "",
     page: int = 0,
     page_size: int = 8,
 ) -> tuple[str, int]:
@@ -620,13 +682,20 @@ def format_subject_resources(
     total_pages = max(1, (total + page_size - 1) // page_size)
     page = max(0, min(page, total_pages - 1))
 
-    lines = ["📚 <b>HEMIS: Fan materiallari va ma'ruzalar</b>"]
+    lines = ["📚 <b>HEMIS: Fan materiallari va resurslar</b>"]
     if subject_name:
-        lines.append(f"<b>{escape(subject_name)}</b> (Jami: {total} ta, sahifa {page + 1}/{total_pages})")
+        lines.append(f"<b>{escape(subject_name)}</b>")
+    if category_title:
+        lines.append(f"<b>Bo'lim:</b> {category_title} (Jami: {total} ta, sahifa {page + 1}/{total_pages})")
+    elif subject_name:
+        lines.append(f"(Jami: {total} ta, sahifa {page + 1}/{total_pages})")
     lines.append("")
 
     if not resources:
-        lines.append("📭 Bu fan bo'yicha elektron resurslar topilmadi.")
+        if category_title:
+            lines.append(f"📭 Ushbu fan bo'yicha <b>{category_title}</b> bo'limida fayllar mavjud emas.")
+        else:
+            lines.append("📭 Bu fan bo'yicha elektron resurslar topilmadi.")
         return "\n".join(lines), total_pages
 
     start = page * page_size
