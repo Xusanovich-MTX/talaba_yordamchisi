@@ -59,6 +59,13 @@ CLASS_REMINDER_WINDOWS: tuple[tuple[int, timedelta, timedelta], ...] = (
     (0, timedelta(minutes=-1), timedelta(minutes=0)),
 )
 
+# Dars tugashidan 10 daqiqa, 5 daqiqa oldin va dars tugaganda eslatma oynalari
+CLASS_END_REMINDER_WINDOWS: tuple[tuple[int, timedelta, timedelta], ...] = (
+    (10, timedelta(minutes=9), timedelta(minutes=10)),
+    (5, timedelta(minutes=4), timedelta(minutes=5)),
+    (0, timedelta(minutes=-1), timedelta(minutes=0)),
+)
+
 # Topshiriq muddati tugashidan 3 kun, 1 kun va 3 soat oldin eslatma oynalari (daqiqalarda)
 DEADLINE_REMINDER_WINDOWS: tuple[tuple[str, float, float, str], ...] = (
     ("task_3d", 4315.0, 4325.0, "⏰ 3 kun qoldi!"),
@@ -195,6 +202,41 @@ async def _send_class_reminder(
         logger.error(f"Xatolik: {e}")
 
 
+async def _send_class_end_reminder(
+    bot: Bot,
+    telegram_id: int,
+    subject: str,
+    end_time: time,
+    room_or_link: str | None,
+    minutes_before: int,
+    dedup_key: str,
+) -> None:
+    if dedup_key in notified_schedules:
+        return
+    status_line = (
+        "🏁 <b>Dars tugadi! Tanaffus vaqti ☕️</b>"
+        if minutes_before == 0
+        else f"⏳ <b>Dars tugashiga {minutes_before} daqiqa qoldi!</b>"
+    )
+    time_label = "Dars yakunlandi" if minutes_before == 0 else "Tugash vaqti"
+    try:
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=(
+                f"🔔 <b>Dars eslatmasi!</b>\n\n"
+                f"📚 <b>{escape(subject)}</b>\n"
+                f"🕐 {time_label}: <b>{end_time.strftime('%H:%M')}</b>\n"
+                f"📍 {escape(room_or_link) if room_or_link else 'Ko‘rsatilmagan'}\n\n"
+                f"{status_line}"
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+        notified_schedules.add(dedup_key)
+        logger.info("Dars tugash eslatmasi yuborildi (%sm): %s - %s", minutes_before, telegram_id, subject)
+    except Exception as e:
+        logger.error(f"Dars tugash eslatmasi xatolik: {e}")
+
+
 async def check_schedule_reminders(bot: Bot):
     """Darsdan 10 daqiqa, 5 daqiqa oldin va dars boshlanganda eslatma yuborish"""
     if os.name == "nt":
@@ -237,6 +279,7 @@ async def check_schedule_reminders(bot: Bot):
                 else latest_window.date()
             )
             starts_at = datetime.combine(schedule_date, sched_time)
+            ends_at = starts_at + timedelta(minutes=80)
             date_str = schedule_date.strftime("%Y%m%d")
 
             for minutes_before, min_delta, max_delta in CLASS_REMINDER_WINDOWS:
@@ -247,6 +290,19 @@ async def check_schedule_reminders(bot: Bot):
                         user.telegram_id,
                         schedule.subject,
                         sched_time,
+                        schedule.room_or_link,
+                        minutes_before,
+                        key,
+                    )
+
+            for minutes_before, min_delta, max_delta in CLASS_END_REMINDER_WINDOWS:
+                if now + min_delta <= ends_at <= now + max_delta:
+                    key = f"{user.telegram_id}_{schedule.id}_{date_str}_end_{minutes_before}m"
+                    await _send_class_end_reminder(
+                        bot,
+                        user.telegram_id,
+                        schedule.subject,
+                        ends_at.time(),
                         schedule.room_or_link,
                         minutes_before,
                         key,
@@ -312,6 +368,13 @@ async def check_schedule_reminders(bot: Bot):
                     room_or_link = " | ".join(details) if details else None
 
                     starts_at = datetime.combine(target_date, sched_time)
+                    end_time_val = _parse_lesson_time(pair.get("end_time"))
+                    if end_time_val is not None:
+                        ends_at = datetime.combine(target_date, end_time_val)
+                        if ends_at < starts_at:
+                            ends_at += timedelta(days=1)
+                    else:
+                        ends_at = starts_at + timedelta(minutes=80)
                     lesson_id = lesson.get("id") or f"{sched_time:%H%M}_{index}"
 
                     for minutes_before, min_delta, max_delta in CLASS_REMINDER_WINDOWS:
@@ -322,6 +385,19 @@ async def check_schedule_reminders(bot: Bot):
                                 user.telegram_id,
                                 subject_name,
                                 sched_time,
+                                room_or_link,
+                                minutes_before,
+                                key,
+                            )
+
+                    for minutes_before, min_delta, max_delta in CLASS_END_REMINDER_WINDOWS:
+                        if now + min_delta <= ends_at <= now + max_delta:
+                            key = f"hemis_{user.telegram_id}_{lesson_id}_{date_str}_end_{minutes_before}m"
+                            await _send_class_end_reminder(
+                                bot,
+                                user.telegram_id,
+                                subject_name,
+                                ends_at.time(),
                                 room_or_link,
                                 minutes_before,
                                 key,

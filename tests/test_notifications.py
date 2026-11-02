@@ -444,6 +444,76 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("5 daqiqadan keyin boshlanadi!", texts[2])
         self.assertIn("Dars boshlandi!", texts[3])
 
+    async def test_class_end_reminders_local_schedule(self):
+        # 09:10 dagi dars 80 daqiqadan so'ng 10:30 da tugaydi
+        await self.save(self.schedule(start_time=time(9, 10)))
+
+        # 10 daqiqa oldin: 10:20 da
+        with clock_at(datetime(2026, 10, 26, 10, 20)):
+            await notifications.check_schedule_reminders(self.bot)
+        self.assertEqual(self.bot.send_message.await_count, 1)
+        text_10m = self.bot.send_message.await_args.kwargs["text"]
+        self.assertIn("Dars tugashiga 10 daqiqa qoldi!", text_10m)
+        self.assertIn("10:30", text_10m)
+
+        # 5 daqiqa oldin: 10:25 da
+        with clock_at(datetime(2026, 10, 26, 10, 25)):
+            await notifications.check_schedule_reminders(self.bot)
+        self.assertEqual(self.bot.send_message.await_count, 2)
+        text_5m = self.bot.send_message.await_args.kwargs["text"]
+        self.assertIn("Dars tugashiga 5 daqiqa qoldi!", text_5m)
+
+        # Dars tugaganda: 10:30 da
+        with clock_at(datetime(2026, 10, 26, 10, 30)):
+            await notifications.check_schedule_reminders(self.bot)
+        self.assertEqual(self.bot.send_message.await_count, 3)
+        text_0m = self.bot.send_message.await_args.kwargs["text"]
+        self.assertIn("Dars tugadi!", text_0m)
+
+    async def test_class_end_reminders_hemis_schedule(self):
+        async with self.sessions() as session:
+            user = await session.get(User, self.user.id)
+            user.hemis_api_url = "https://student.example.uz/rest/v1/"
+            user.hemis_session_ciphertext = "encrypted-session"
+            await session.commit()
+
+        hemis_lesson = {
+            "id": 999,
+            "lesson_date": "2026-10-26",
+            "subject": {"name": "Algoritmlar"},
+            "lessonPair": {"start_time": "09:00", "end_time": "10:20"},
+            "auditorium": {"name": "101-xona"},
+            "employee": {"name": "Sobirov O."},
+        }
+
+        with (
+            patch.object(
+                notifications,
+                "decrypt_hemis_session",
+                return_value={"access_token": "tok", "refresh_token": "ref"},
+            ),
+            patch.object(
+                notifications,
+                "fetch_day_schedule",
+                new=AsyncMock(return_value=({}, [hemis_lesson], {"access_token": "tok", "refresh_token": "ref"})),
+            ),
+        ):
+            # 10:10 da (10 daqiqa oldin)
+            with clock_at(datetime(2026, 10, 26, 10, 10)):
+                await notifications.check_schedule_reminders(self.bot)
+            # 10:15 da (5 daqiqa oldin)
+            with clock_at(datetime(2026, 10, 26, 10, 15)):
+                await notifications.check_schedule_reminders(self.bot)
+            # 10:20 da (dars tugaganda)
+            with clock_at(datetime(2026, 10, 26, 10, 20)):
+                await notifications.check_schedule_reminders(self.bot)
+
+        self.assertEqual(self.bot.send_message.await_count, 3)
+        texts = [call.kwargs["text"] for call in self.bot.send_message.await_args_list]
+        self.assertIn("Dars tugashiga 10 daqiqa qoldi!", texts[0])
+        self.assertIn("Dars tugashiga 5 daqiqa qoldi!", texts[1])
+        self.assertIn("Dars tugadi!", texts[2])
+
     async def test_start_scheduler_twice_keeps_one_job_per_check(self):
         scheduler = AsyncIOScheduler(timezone="Asia/Tashkent")
         try:
