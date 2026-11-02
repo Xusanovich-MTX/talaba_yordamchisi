@@ -323,15 +323,66 @@ async def start_hemis_connect(
 
     await state.set_state(HemisConnect.institution_search)
     await message.answer(
-        "Yozish davomida OTM takliflari chiqishi uchun <b>Jonli qidirish</b>ni bosing. "
-        "Tugma javob bermasa, @BotFather'da /setinline ni yoqing. "
-        "Oddiy qidirish uchun OTM nomini shu chatga yuboring.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
+        "🎓 <b>HEMIS tizimiga ulanish</b>\n\n"
+        "O'zingiz o'qiydigan oliygoh (OTM) nomini shu chatga yozib yuboring.\n"
+        "<i>Masalan: SamDU, TATU, O'zMU yoki Samarqand</i>\n\n"
+        "🔍 Shuningdek, pastdagi <b>«🔎 Jonli qidirish»</b> tugmasi orqali ham qidirishingiz mumkin.\n"
+        "ℹ️ <i>Agar tugma javob bermasa yoki qiyinchilikka duch kelsangiz, <b>«ℹ️ Yordam va Qo'llanma»</b> tugmasidan foydalaning.</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
                 text="🔎 Jonli qidirish",
                 switch_inline_query_current_chat="",
+            )],
+            [InlineKeyboardButton(
+                text="ℹ️ Yordam va Qo'llanma",
+                callback_data="hemis_help_guide",
+            )],
+            [InlineKeyboardButton(
+                text="❌ Bekor qilish",
+                callback_data="hemis:cancel",
+            )],
+        ]),
+    )
+
+
+@router.callback_query(F.data == "hemis_help_guide")
+async def hemis_help_guide_callback(callback: CallbackQuery):
+    await callback.answer()
+    await callback.message.answer(
+        "📖 <b>HEMIS tizimiga ulanish bo'yicha yordam:</b>\n\n"
+        "1️⃣ <b>OTMni qidirish:</b>\n"
+        "Universitetingiz nomini (masalan: <i>SamDU, TATU, O'zMU</i>) chatga oddiy xabar qilib yozing va ro'yxatdan o'zingiznikini tanlang.\n\n"
+        "2️⃣ <b>Login (Talaba ID):</b>\n"
+        "12 xonali Talaba ID raqamingizni kiriting.\n\n"
+        "3️⃣ <b>Parol:</b>\n"
+        "HEMIS parolingizni yuboring. Xavfsizlik uchun parol yozilgan xabar darhol Telegramdan o'chiriladi va hech qayerda saqlanmaydi!\n\n"
+        "🔐 <b>Xavfsizlik:</b> Parollar saqlanmaydi, ulanishlar AES-128 bilan shifrlangan. Istalgan vaqtda tizimdan chiqishingiz mumkin.\n\n"
+        f"👨‍💻 Qo'shimcha yordam: @{escape(SUPPORT_USERNAME)}",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="⬅️ OTM qidirishga qaytish",
+                callback_data="hemis_back_to_search",
             )
         ]]),
+    )
+
+
+@router.callback_query(F.data == "hemis_back_to_search")
+async def hemis_back_to_search_callback(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(HemisConnect.institution_search)
+    await callback.message.answer(
+        "🎓 O'zingiz o'qiydigan oliygoh (OTM) nomini shu chatga yozib yuboring:\n<i>Masalan: SamDU, TATU, O'zMU</i>",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🔎 Jonli qidirish",
+                switch_inline_query_current_chat="",
+            )],
+            [InlineKeyboardButton(
+                text="❌ Bekor qilish",
+                callback_data="hemis:cancel",
+            )],
+        ]),
     )
 
 
@@ -702,6 +753,11 @@ async def help_handler(message: Message):
         "📚 <b>Resurslar</b> — Fanlar bo'yicha elektron ma'ruza va taqdimot fayllari.\n"
         "⚙️ <b>Sozlamalar</b> — Dars va topshiriq eslatmalarini boshqarish.\n"
         "🚪 <b>Tizimdan chiqish</b> — Boshqa profilga ulanish uchun joriy HEMIS akkauntdan chiqish.\n\n"
+        "🔐 <b>4. Xavfsizlik kafolati (Ma'lumotlar qanday himoyalangan?):</b>\n"
+        "• <b>Parollar saqlanmaydi:</b> Talabaning HEMIS paroli na ma'lumotlar bazasida, na serverda saqlanadi. U faqat bir martalik avtorizatsiya vaqtida ishlatiladi va darhol xotiradan butunlay o'chiriladi.\n"
+        "• <b>Kriptografik shifrlash:</b> Tizimga kirish tokenlari xalqaro standartdagi <b>AES-128 (Fernet)</b> algoritmi bilan kuchli shifrlangan.\n"
+        "• <b>Faqat rasmiy HEMIS talaba API:</b> Bot faqat talabaning o'ziga tegishli dars jadvali, topshiriq va baholarini ko'rsatish uchun xizmat qiladi, hech qanday begona amal bajarilmaydi.\n"
+        "• <b>Istalgan vaqtda chiqish:</b> Xohlagan vaqtingizda «🚪 Tizimdan chiqish» tugmasini bosib, barcha ulanish ma'lumotlarini bazadan butunlay o'chirib yuborishingiz mumkin.\n\n"
         "🆔 /id — raqamli Telegram ID'ingizni ko'rish.\n"
         f"👨‍💻 Qo'shimcha yordam va murojaat uchun: @{escape(SUPPORT_USERNAME)}"
     )
