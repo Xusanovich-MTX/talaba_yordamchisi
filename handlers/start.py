@@ -791,7 +791,8 @@ async def settings_handler(message: Message, session: AsyncSession):
         "Eslatmalarni yoqish yoki o'chirish uchun quyidagi tugmalardan foydalaning:\n\n"
         "🔔 <b>Dars eslatmalari:</b>\n"
         "• Dars boshlanishidan 10 va 5 daqiqa oldin hamda boshlanganda\n"
-        "• Dars tugashidan 10 va 5 daqiqa oldin hamda tugaganda (tanaffus)\n\n"
+        "• Dars tugashidan 10 va 5 daqiqa oldin hamda tugaganda (tanaffus)\n"
+        "• Darslar oralig'idagi bo'sh soatda (okno) — dars yo'q soati va keyingi dars vaqti\n\n"
         "⏰ <b>Deadline eslatmalari:</b>\n"
         "• Topshiriq muddati tugashidan 3 kun, 1 kun va 3 soat oldin",
         reply_markup=settings_kb(user),

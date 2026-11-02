@@ -210,6 +210,7 @@ async def _send_class_end_reminder(
     room_or_link: str | None,
     minutes_before: int,
     dedup_key: str,
+    extra_text: str | None = None,
 ) -> None:
     if dedup_key in notified_schedules:
         return
@@ -218,6 +219,8 @@ async def _send_class_end_reminder(
         if minutes_before == 0
         else f"⏳ <b>Dars tugashiga {minutes_before} daqiqa qoldi!</b>"
     )
+    if minutes_before == 0 and extra_text:
+        status_line = f"{status_line}\n\n{extra_text}"
     time_label = "Dars yakunlandi" if minutes_before == 0 else "Tugash vaqti"
     try:
         await bot.send_message(
@@ -235,6 +238,38 @@ async def _send_class_end_reminder(
         logger.info("Dars tugash eslatmasi yuborildi (%sm): %s - %s", minutes_before, telegram_id, subject)
     except Exception as e:
         logger.error(f"Dars tugash eslatmasi xatolik: {e}")
+
+
+async def _send_gap_reminder(
+    bot: Bot,
+    telegram_id: int,
+    gap_start_str: str,
+    gap_end_str: str,
+    next_subject: str,
+    next_start: time,
+    next_room: str | None,
+    dedup_key: str,
+) -> None:
+    if dedup_key in notified_schedules:
+        return
+    try:
+        room_line = f"📍 {escape(next_room)}\n" if next_room else ""
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=(
+                f"🎉 <b>Dars yo‘q soati (Bo‘sh vaqt)!</b>\n\n"
+                f"☕️ Hozir sizda dars belgilanmagan (<b>{gap_start_str} – {gap_end_str}</b>).\n"
+                f"Dam olishingiz yoki topshiriqlarni tayyorlashingiz mumkin.\n\n"
+                f"🕐 <b>Keyingi dars:</b> <b>{next_start.strftime('%H:%M')}</b> da\n"
+                f"📚 <b>{escape(next_subject)}</b>\n"
+                f"{room_line}"
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+        notified_schedules.add(dedup_key)
+        logger.info("Dars yo'q soati eslatmasi yuborildi: %s (Keyingi dars: %s)", telegram_id, next_subject)
+    except Exception as e:
+        logger.error(f"Dars yo'q soati eslatmasi xatolik: {e}")
 
 
 async def check_schedule_reminders(bot: Bot):
@@ -346,6 +381,7 @@ async def check_schedule_reminders(bot: Bot):
             for target_date in target_dates:
                 lessons = await _get_cached_hemis_day_lessons(session, user, target_date)
                 date_str = target_date.strftime("%Y%m%d")
+                parsed_lessons = []
                 for index, lesson in enumerate(lessons):
                     lesson_date = _local_date(lesson.get("lesson_date"), TIMEZONE) or target_date
                     if lesson_date != target_date:
@@ -378,6 +414,27 @@ async def check_schedule_reminders(bot: Bot):
                         ends_at = starts_at + timedelta(minutes=80)
                     lesson_id = lesson.get("id") or f"{sched_time:%H%M}_{index}"
 
+                    parsed_lessons.append({
+                        "id": lesson_id,
+                        "subject": subject_name,
+                        "sched_time": sched_time,
+                        "starts_at": starts_at,
+                        "ends_at": ends_at,
+                        "room_or_link": room_or_link,
+                    })
+
+                parsed_lessons.sort(key=lambda x: x["starts_at"])
+
+                for i, item in enumerate(parsed_lessons):
+                    lesson_id = item["id"]
+                    subject_name = item["subject"]
+                    sched_time = item["sched_time"]
+                    starts_at = item["starts_at"]
+                    ends_at = item["ends_at"]
+                    room_or_link = item["room_or_link"]
+                    next_item = parsed_lessons[i + 1] if i + 1 < len(parsed_lessons) else None
+
+                    # Dars boshlanishi bo'yicha eslatmalar
                     for minutes_before, min_delta, max_delta in CLASS_REMINDER_WINDOWS:
                         if now + min_delta <= starts_at <= now + max_delta:
                             key = f"hemis_{user.telegram_id}_{lesson_id}_{date_str}_{minutes_before}m"
@@ -391,6 +448,18 @@ async def check_schedule_reminders(bot: Bot):
                                 key,
                             )
 
+                    # Dars tugashi bo'yicha eslatmalar
+                    extra_text = None
+                    if next_item is None:
+                        extra_text = "🎉 <b>Bugungi barcha darslar yakunlandi! Maroqli hordiq chiqaring!</b>"
+                    else:
+                        gap_minutes = (next_item["starts_at"] - ends_at).total_seconds() / 60
+                        if gap_minutes > 40:
+                            extra_text = (
+                                f"☕️ <b>Keyingi soatda sizda dars yo‘q (bo‘sh vaqt / okno 🎉).</b>\n"
+                                f"🕐 Keyingi dars: <b>{next_item['starts_at'].strftime('%H:%M')} da</b> ({escape(next_item['subject'])})"
+                            )
+
                     for minutes_before, min_delta, max_delta in CLASS_END_REMINDER_WINDOWS:
                         if now + min_delta <= ends_at <= now + max_delta:
                             key = f"hemis_{user.telegram_id}_{lesson_id}_{date_str}_end_{minutes_before}m"
@@ -402,7 +471,26 @@ async def check_schedule_reminders(bot: Bot):
                                 room_or_link,
                                 minutes_before,
                                 key,
+                                extra_text=extra_text if minutes_before == 0 else None,
                             )
+
+                    # Dars yo'q soati (Bo'sh soat / Okno eslatmasi)
+                    if next_item is not None:
+                        gap_minutes = (next_item["starts_at"] - ends_at).total_seconds() / 60
+                        if gap_minutes > 40:
+                            gap_start = ends_at + timedelta(minutes=10)
+                            gap_key = f"hemis_{user.telegram_id}_{date_str}_gap_{lesson_id}_{next_item['id']}"
+                            if gap_start <= now <= next_item["starts_at"] - timedelta(minutes=15):
+                                await _send_gap_reminder(
+                                    bot,
+                                    user.telegram_id,
+                                    ends_at.strftime('%H:%M'),
+                                    next_item["starts_at"].strftime('%H:%M'),
+                                    next_item["subject"],
+                                    next_item["starts_at"].time(),
+                                    next_item["room_or_link"],
+                                    gap_key,
+                                )
 
 
 async def check_deadline_reminders(bot: Bot):
