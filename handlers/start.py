@@ -324,10 +324,8 @@ async def start_hemis_connect(
     await state.set_state(HemisConnect.institution_search)
     await message.answer(
         "🎓 <b>HEMIS tizimiga ulanish</b>\n\n"
-        "O'zingiz o'qiydigan oliygoh (OTM) nomini shu chatga yozib yuboring.\n"
-        "<i>Masalan: SamDU, TATU, O'zMU yoki Samarqand</i>\n\n"
-        "🔍 Shuningdek, pastdagi <b>«🔎 Jonli qidirish»</b> tugmasi orqali ham qidirishingiz mumkin.\n"
-        "ℹ️ <i>Agar tugma javob bermasa yoki qiyinchilikka duch kelsangiz, <b>«ℹ️ Yordam va Qo'llanma»</b> tugmasidan foydalaning.</i>",
+        "O'zingiz o'qiydigan oliygohni tanlash uchun pastdagi <b>«🔎 Jonli qidirish»</b> tugmasini bosing va ro'yxatdan o'z OTMingizni tanlang.\n\n"
+        "ℹ️ <i>Qo'llanma va ma'lumotlar xavfsizligi kafolati bilan tanishish uchun <b>«ℹ️ Yordam va Qo'llanma»</b> tugmasidan foydalaning.</i>",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text="🔎 Jonli qidirish",
@@ -351,7 +349,7 @@ async def hemis_help_guide_callback(callback: CallbackQuery):
     await callback.message.answer(
         "📖 <b>HEMIS tizimiga ulanish bo'yicha yordam:</b>\n\n"
         "1️⃣ <b>OTMni qidirish:</b>\n"
-        "Universitetingiz nomini (masalan: <i>SamDU, TATU, O'zMU</i>) chatga oddiy xabar qilib yozing va ro'yxatdan o'zingiznikini tanlang.\n\n"
+        "Pastdagi <b>«🔎 Jonli qidirish»</b> tugmasini bosing, oliygohingiz nomini yozing va chiqib kelgan natijalardan o'z OTMingizni tanlang.\n\n"
         "2️⃣ <b>Login (Talaba ID):</b>\n"
         "12 xonali Talaba ID raqamingizni kiriting.\n\n"
         "3️⃣ <b>Parol:</b>\n"
@@ -372,7 +370,7 @@ async def hemis_back_to_search_callback(callback: CallbackQuery, state: FSMConte
     await callback.answer()
     await state.set_state(HemisConnect.institution_search)
     await callback.message.answer(
-        "🎓 O'zingiz o'qiydigan oliygoh (OTM) nomini shu chatga yozib yuboring:\n<i>Masalan: SamDU, TATU, O'zMU</i>",
+        "🎓 O'zingiz o'qiydigan oliygohni tanlash uchun pastdagi <b>«🔎 Jonli qidirish»</b> tugmasini bosing:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text="🔎 Jonli qidirish",
@@ -730,7 +728,7 @@ async def help_handler(message: Message):
         "📖 <b>Botdan foydalanish va HEMIS tizimiga ulanish qo'llanmasi</b>\n\n"
         "🔐 <b>1. HEMIS tizimiga qanday ulaniladi?</b>\n"
         "1️⃣ Asosiy menyudan <b>«🎓 HEMIS ulash»</b> tugmasini bosing.\n"
-        "2️⃣ <b>«🔎 Jonli qidirish»</b> tugmasini bosib OTM nomini yozing (masalan: <i>TATU, O'zMU, SamDU</i>) yoki OTM nomini oddiy xabar qilib yuboring va ro'yxatdan o'z oliygohingizni tanlang.\n"
+        "2️⃣ <b>«🔎 Jonli qidirish»</b> tugmasini bosib OTM nomini qidiring (masalan: <i>TATU, O'zMU, SamDU</i>) va chiqib kelgan ro'yxatdan o'z oliygohingizni tanlang.\n"
         "3️⃣ <b>HEMIS Login (Talaba ID)</b> raqamingizni yuboring (masalan: <code>395231101234</code> — 12 xonali talaba ID raqamingiz).\n"
         "4️⃣ <b>HEMIS parolingizni</b> yuboring (xavfsizlik uchun parol yozilgan xabar darhol avtomatik o'chiriladi va shifrlanadi).\n\n"
         "❓ <b>2. HEMIS tizimiga kira olmasangiz nima qilish kerak?</b>\n"
