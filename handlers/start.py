@@ -19,10 +19,10 @@ from aiogram.types import (
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from config import HEMIS_SESSION_KEY, SUPPORT_USERNAME
-from database.models import User
+from database.models import Schedule, User
 from keyboards.reply import cancel_kb, main_menu_kb
 from services.channel_sub import (
     get_channel_config,
@@ -659,6 +659,7 @@ async def receive_hemis_password(
             user.hemis_api_url, hemis_login, password
         )
         user.hemis_session_ciphertext = encrypt_hemis_session(session_data)
+        await session.execute(delete(Schedule).where(Schedule.user_id == user.id))
         await session.commit()
     except HemisLoginError as error:
         if error.reason == "invalid_credentials":

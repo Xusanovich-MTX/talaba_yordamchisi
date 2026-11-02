@@ -256,7 +256,7 @@ async def check_schedule_reminders(bot: Bot):
         for reg_user in all_users_res.scalars().all():
             await _check_user_channel_or_stop(bot, reg_user.telegram_id)
 
-        # 1. Lokal bazadagi dars jadvallarini tekshirish
+        # 1. Lokal bazadagi dars jadvallarini tekshirish (faqat HEMIS ulanmagan foydalanuvchilar uchun)
         result = await session.execute(
             select(Schedule, User)
             .join(User, Schedule.user_id == User.id)
@@ -265,6 +265,7 @@ async def check_schedule_reminders(bot: Bot):
                     earliest_window.isoweekday(), latest_window.isoweekday()
                 ]),
                 User.notify_class.is_(True),
+                User.hemis_session_ciphertext.is_(None),
             )
         )
         rows = result.all()
