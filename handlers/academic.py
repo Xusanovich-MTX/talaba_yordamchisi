@@ -208,7 +208,7 @@ async def show_subject_attendance_callback(
         await _send_chunks(callback.message, text, reply_markup=kb)
 
 
-@router.callback_query(F.data == "hemis_att_back")
+@router.callback_query(F.data.in_(["hemis_attendance", "hemis_att_back"]))
 async def back_to_attendance_overview(
     callback: CallbackQuery, session: AsyncSession
 ):

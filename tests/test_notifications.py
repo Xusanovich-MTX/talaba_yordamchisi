@@ -60,6 +60,7 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.session_patch.start()
         notifications.notified_schedules.clear()
         notifications.notified_tasks.clear()
+        notifications.notified_attendance_records.clear()
         notifications._hemis_day_cache.clear()
         notifications._hemis_tasks_cache.clear()
         self.bot = AsyncMock()
@@ -71,6 +72,7 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.session_patch.stop()
         notifications.notified_schedules.clear()
         notifications.notified_tasks.clear()
+        notifications.notified_attendance_records.clear()
         notifications._hemis_day_cache.clear()
         notifications._hemis_tasks_cache.clear()
         await self.engine.dispose()
@@ -585,13 +587,183 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(scheduler.running)
             self.assertEqual(
                 {job.id for job in scheduler.get_jobs()},
-                {"schedule_check", "deadline_check"},
+                {"schedule_check", "deadline_check", "attendance_check"},
             )
         finally:
             if scheduler.running:
                 scheduler.shutdown(wait=False)
                 await asyncio.sleep(0)
         self.bot.send_message.assert_not_awaited()
+
+
+    async def test_attendance_first_run_initializes_baseline_without_spam(self):
+        async with self.sessions() as session:
+            user = await session.get(User, self.user.id)
+            user.hemis_api_url = "https://student.example.uz/rest/v1/"
+            user.hemis_session_ciphertext = "encrypted-session"
+            await session.commit()
+
+        existing_record = {
+            "id": 101,
+            "lesson_date": 1730000000,
+            "absent_on": 2,
+            "absent_off": 0,
+            "explicable": False,
+            "subject": {"name": "Fizika"},
+            "trainingType": {"name": "Amaliy"},
+            "employee": {"name": "Aliyev B."},
+            "lessonPair": {"start_time": "09:00", "end_time": "10:20"},
+        }
+        semester = {
+            "name": "Kuzgi semestr",
+            "_subjects": [{"subject": {"name": "Fizika"}, "auditorium_hours": 60}],
+        }
+
+        with (
+            patch.object(
+                notifications,
+                "decrypt_hemis_session",
+                return_value={"access_token": "valid-token"},
+            ),
+            patch.object(
+                notifications,
+                "fetch_attendance",
+                AsyncMock(return_value=(semester, [existing_record], {"access_token": "valid-token"})),
+            ),
+            patch.object(notifications, "_check_user_channel_or_stop", AsyncMock(return_value=True)),
+            patch.object(notifications, "_save_notified_attendance", lambda keys: None),
+        ):
+            await notifications.check_attendance_notifications(self.bot)
+
+        # Baseline initialization must not send any message
+        self.bot.send_message.assert_not_awaited()
+        self.assertIn(f"att_init_{self.user.telegram_id}", notifications.notified_attendance_records)
+        self.assertIn(f"nb_{self.user.telegram_id}_101", notifications.notified_attendance_records)
+
+    async def test_attendance_new_nb_record_notifies_with_percentage_and_red_line(self):
+        async with self.sessions() as session:
+            user = await session.get(User, self.user.id)
+            user.hemis_api_url = "https://student.example.uz/rest/v1/"
+            user.hemis_session_ciphertext = "encrypted-session"
+            await session.commit()
+
+        # Mark user as already initialized
+        notifications.notified_attendance_records.add(f"att_init_{self.user.telegram_id}")
+
+        new_record = {
+            "id": 202,
+            "lesson_date": 1730010000,
+            "absent_on": 0,
+            "absent_off": 2,
+            "explicable": False,
+            "subject": {"name": "Dasturlash"},
+            "trainingType": {"name": "Ma'ruza"},
+            "employee": {"name": "Valiyev C."},
+            "lessonPair": {"start_time": "10:30", "end_time": "11:50"},
+        }
+        semester = {
+            "name": "Kuzgi semestr",
+            "_subjects": [{"subject": {"name": "Dasturlash"}, "auditorium_hours": 60}],
+        }
+
+        with (
+            patch.object(
+                notifications,
+                "decrypt_hemis_session",
+                return_value={"access_token": "valid-token"},
+            ),
+            patch.object(
+                notifications,
+                "fetch_attendance",
+                AsyncMock(return_value=(semester, [new_record], {"access_token": "valid-token"})),
+            ),
+            patch.object(notifications, "_check_user_channel_or_stop", AsyncMock(return_value=True)),
+            patch.object(notifications, "_save_notified_attendance", lambda keys: None),
+        ):
+            await notifications.check_attendance_notifications(self.bot)
+
+        self.assertEqual(self.bot.send_message.await_count, 1)
+        kwargs = self.bot.send_message.await_args.kwargs
+        self.assertEqual(kwargs["chat_id"], self.user.telegram_id)
+        text = kwargs["text"]
+        self.assertIn("Yangi NB qo'yildi!", text)
+        self.assertIn("Dasturlash", text)
+        self.assertIn("Ma'ruza", text)
+        self.assertIn("Valiyev C.", text)
+        self.assertIn("2 soat", text)
+        self.assertIn("🔴 Sababsiz", text)
+        self.assertIn("NB foizi: <b>3.3%</b>", text)
+        self.assertIn("25% qizil chiziqqacha:", text)
+        self.assertEqual(
+            kwargs["reply_markup"].inline_keyboard[0][0].callback_data,
+            "hemis_attendance",
+        )
+
+        # Subsequent check should not duplicate notification
+        with (
+            patch.object(
+                notifications,
+                "decrypt_hemis_session",
+                return_value={"access_token": "valid-token"},
+            ),
+            patch.object(
+                notifications,
+                "fetch_attendance",
+                AsyncMock(return_value=(semester, [new_record], {"access_token": "valid-token"})),
+            ),
+            patch.object(notifications, "_check_user_channel_or_stop", AsyncMock(return_value=True)),
+            patch.object(notifications, "_save_notified_attendance", lambda keys: None),
+        ):
+            await notifications.check_attendance_notifications(self.bot)
+
+        self.assertEqual(self.bot.send_message.await_count, 1)
+
+    async def test_attendance_reaches_red_line_triggers_alert(self):
+        async with self.sessions() as session:
+            user = await session.get(User, self.user.id)
+            user.hemis_api_url = "https://student.example.uz/rest/v1/"
+            user.hemis_session_ciphertext = "encrypted-session"
+            await session.commit()
+
+        notifications.notified_attendance_records.add(f"att_init_{self.user.telegram_id}")
+
+        # 16 hours out of 60 hours = 26.7% (> 25% red line)
+        critical_record = {
+            "id": 303,
+            "lesson_date": 1730020000,
+            "absent_on": 0,
+            "absent_off": 16,
+            "explicable": False,
+            "subject": {"name": "Kiberxavfsizlik"},
+            "trainingType": {"name": "Amaliy"},
+            "employee": {"name": "Toshmatov D."},
+            "lessonPair": {"start_time": "12:00", "end_time": "13:20"},
+        }
+        semester = {
+            "name": "Kuzgi semestr",
+            "_subjects": [{"subject": {"name": "Kiberxavfsizlik"}, "auditorium_hours": 60}],
+        }
+
+        with (
+            patch.object(
+                notifications,
+                "decrypt_hemis_session",
+                return_value={"access_token": "valid-token"},
+            ),
+            patch.object(
+                notifications,
+                "fetch_attendance",
+                AsyncMock(return_value=(semester, [critical_record], {"access_token": "valid-token"})),
+            ),
+            patch.object(notifications, "_check_user_channel_or_stop", AsyncMock(return_value=True)),
+            patch.object(notifications, "_save_notified_attendance", lambda keys: None),
+        ):
+            await notifications.check_attendance_notifications(self.bot)
+
+        self.assertEqual(self.bot.send_message.await_count, 1)
+        text = self.bot.send_message.await_args.kwargs["text"]
+        self.assertIn("26.7%", text)
+        self.assertIn("DIQQAT! 25% qizil chiziqqa yetdingiz yoki oshdingiz!", text)
 
 
 if __name__ == "__main__":

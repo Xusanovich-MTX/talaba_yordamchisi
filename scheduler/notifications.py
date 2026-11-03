@@ -1,4 +1,6 @@
 import ctypes
+import json
+from pathlib import Path
 import logging
 import os
 import time as time_module
@@ -24,7 +26,13 @@ from services.hemis_schedule import (
 )
 from services.hemis_session import decrypt_hemis_session, encrypt_hemis_session
 from services.hemis_tasks import fetch_upcoming_tasks
-from services.hemis_extra import format_morning_motivation
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from services.hemis_extra import (
+    _fmt_hours,
+    build_attendance_subjects,
+    fetch_attendance,
+    format_morning_motivation,
+)
 from services.channel_sub import (
     get_channel_config,
     is_user_subscribed,
@@ -42,6 +50,47 @@ scheduler = AsyncIOScheduler(timezone=TIMEZONE)
 # Eslatilgan narsalarni takror yubormaslik uchun (xotirada saqlaymiz)
 notified_schedules: set[str] = set()
 notified_tasks: set[str] = set()
+
+# Davomat (NB) eslatmalarini takror yubormaslik uchun faylda saqlaymiz
+NOTIFIED_ATTENDANCE_PATH = (
+    Path(__file__).resolve().parent.parent / "runtime" / "notified_attendance.json"
+)
+
+
+def _load_notified_attendance() -> set[str]:
+    if NOTIFIED_ATTENDANCE_PATH.exists():
+        try:
+            data = json.loads(NOTIFIED_ATTENDANCE_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return set(data)
+        except Exception as exc:
+            logger.warning("Could not load %s: %s", NOTIFIED_ATTENDANCE_PATH, exc)
+    return set()
+
+
+def _save_notified_attendance(keys: set[str]) -> None:
+    try:
+        NOTIFIED_ATTENDANCE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        NOTIFIED_ATTENDANCE_PATH.write_text(
+            json.dumps(sorted(keys), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        logger.warning("Could not save %s: %s", NOTIFIED_ATTENDANCE_PATH, exc)
+
+
+notified_attendance_records: set[str] = _load_notified_attendance()
+
+
+def _attendance_record_key(user_telegram_id: int, rec: dict[str, Any]) -> str:
+    rec_id = rec.get("id")
+    if rec_id is not None and str(rec_id).strip():
+        return f"nb_{user_telegram_id}_{rec_id}"
+    lesson_date = str(rec.get("lesson_date") or "")
+    subj_dict = rec.get("subject") or {}
+    subj_name = str(subj_dict.get("name") or "")
+    hours = int(rec.get("absent_on") or 0) + int(rec.get("absent_off") or 0)
+    return f"nb_{user_telegram_id}_{lesson_date}_{subj_name}_{hours}"
 
 # HEMIS ma'lumotlarini har daqiqada qayta so'ramaslik uchun kesh (15 daqiqa)
 HEMIS_CACHE_TTL_SECONDS = 900
@@ -598,6 +647,199 @@ async def send_deadline_msg(bot: Bot, user: User, task: Task, time_text: str) ->
         return False
 
 
+async def _send_new_nb_notification(
+    bot: Bot,
+    user: User,
+    rec: dict[str, Any],
+    subject_stats: list[dict[str, Any]],
+) -> bool:
+    """Yangi qo'yilgan NB haqida talabaga foizi va qizil chiziq chegarasi bilan xabar berish."""
+    try:
+        absent_on = int(rec.get("absent_on") or 0)
+        absent_off = int(rec.get("absent_off") or 0)
+        explicable = bool(rec.get("explicable"))
+        hours = absent_on + absent_off
+        if hours == 0:
+            hours = 2
+        is_excused = absent_on > 0 or explicable
+        badge = "🟢 Sababli" if is_excused else "🔴 Sababsiz"
+
+        subject_dict = rec.get("subject") or {}
+        subject_name = str(subject_dict.get("name") or "Noma'lum fan").strip()
+
+        training_dict = rec.get("trainingType") or {}
+        training_name = str(training_dict.get("name") or "").strip()
+
+        employee_dict = rec.get("employee") or {}
+        employee_name = str(employee_dict.get("name") or "").strip()
+
+        pair = rec.get("lessonPair") or {}
+        start_t = str(pair.get("start_time") or "")
+        end_t = str(pair.get("end_time") or "")
+        time_str = f"{start_t}–{end_t}" if start_t and end_t else start_t
+
+        local_tz = ZoneInfo(user.timezone) if user.timezone else TIMEZONE
+        date_val = _local_date(rec.get("lesson_date"), local_tz)
+        date_str = date_val.strftime("%d.%m.%Y") if date_val else "Noma'lum sana"
+
+        matching_stat = next(
+            (
+                s
+                for s in subject_stats
+                if str(s.get("name") or "").strip().casefold()
+                == subject_name.casefold()
+            ),
+            None,
+        )
+
+        if matching_stat:
+            total_h = int(matching_stat.get("total") or hours)
+            pct = float(matching_stat.get("pct") or 0.0)
+            remaining_h = float(matching_stat.get("remaining_hours") or 0.0)
+            rem_pairs = _fmt_hours(
+                matching_stat.get("remaining_pairs") or (remaining_h // 2)
+            )
+        else:
+            total_h = hours
+            pct = round((total_h / 60) * 100, 1)
+            remaining_h = max(0.0, 15.0 - total_h)
+            rem_pairs = _fmt_hours(remaining_h // 2)
+
+        total_pairs = _fmt_hours(total_h / 2)
+
+        if pct >= 25.0:
+            status_line = (
+                f"🚨 <b>DIQQAT! 25% qizil chiziqqa yetdingiz yoki oshdingiz!</b>\n"
+                f"<i>(Oraliq/yakuniy nazoratga kiritilmaslik xavfi mavjud, zudlik bilan dekanatga murojaat qiling!)</i>"
+            )
+        else:
+            status_line = (
+                f"🔴 <b>25% qizil chiziqqacha:</b> yana <b>{_fmt_hours(remaining_h)} soat</b> "
+                f"({rem_pairs} para) qoldi."
+            )
+
+        lines = [
+            "⚠️ <b>Davomat eslatmasi: Yangi NB qo'yildi!</b>\n",
+            f"📚 <b>Fan:</b> <b>{escape(subject_name, quote=False)}</b>"
+            + (f" ({escape(training_name, quote=False)})" if training_name else ""),
+            f"📅 <b>Sana va vaqt:</b> {date_str}"
+            + (f" | {time_str}" if time_str else ""),
+            f"⏰ <b>Qoldirilgan:</b> <b>{hours} soat</b> ({badge})",
+        ]
+        if employee_name:
+            lines.append(f"👨‍🏫 <b>O'qituvchi:</b> {escape(employee_name, quote=False)}")
+
+        lines.extend([
+            "",
+            "━━━━━━━━━━━━━━━━━━━",
+            "📊 <b>Ushbu fandan jami davomat:</b>",
+            f"• Qoldirilgan: <b>{total_h} soat</b> ({total_pairs} para)",
+            f"• NB foizi: <b>{pct}%</b> (Qizil chiziq chegarasi: <b>25%</b>)",
+            status_line,
+            "━━━━━━━━━━━━━━━━━━━",
+            "💡 <i>Darslarni sababsiz qoldirmaslikka harakat qiling!</i>",
+        ])
+        text = "\n".join(lines)
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📊 Batafsil davomat",
+                        callback_data="hemis_attendance",
+                    )
+                ]
+            ]
+        )
+
+        await bot.send_message(
+            chat_id=user.telegram_id,
+            text=text,
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+        logger.info(
+            f"NB eslatmasi yuborildi: user={user.telegram_id}, fan={subject_name}, {hours} soat"
+        )
+        return True
+    except Exception as exc:
+        logger.error(f"NB xabarini yuborishda xatolik ({user.telegram_id}): {exc}")
+        return False
+
+
+async def check_attendance_notifications(bot: Bot) -> None:
+    """HEMIS tizimidagi yangi NB (dars qoldirish) qaydlarini aniqlash va talabaga xabar berish."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(
+                User.notify_class.is_(True),
+                User.hemis_api_url.is_not(None),
+                User.hemis_session_ciphertext.is_not(None),
+            )
+        )
+        users = result.scalars().all()
+
+        for user in users:
+            try:
+                if not await _check_user_channel_or_stop(bot, user.telegram_id):
+                    continue
+
+                session_data = decrypt_hemis_session(user.hemis_session_ciphertext)
+                if not session_data or not session_data.get("access_token"):
+                    continue
+
+                try:
+                    semester, records, updated_session = await fetch_attendance(
+                        user.hemis_api_url,
+                        session_data,
+                        timezone_name=user.timezone or "Asia/Tashkent",
+                    )
+                except (HemisScheduleError, HemisSessionExpired) as exc:
+                    logger.debug(f"HEMIS davomat olinmadi (user {user.telegram_id}): {exc}")
+                    continue
+                except Exception as exc:
+                    logger.warning(f"HEMIS davomat tekshirishda xatolik ({user.telegram_id}): {exc}")
+                    continue
+
+                if updated_session != session_data:
+                    user.hemis_session_ciphertext = encrypt_hemis_session(updated_session)
+                    await session.commit()
+
+                init_key = f"att_init_{user.telegram_id}"
+                if init_key not in notified_attendance_records:
+                    # Birinchi ishga tushganda eski oylardagi NBlardan spam yubormaslik uchun
+                    # barcha mavjud NBlarni bazaga belgilab olamiz
+                    for rec in records:
+                        rec_k = _attendance_record_key(user.telegram_id, rec)
+                        notified_attendance_records.add(rec_k)
+                    notified_attendance_records.add(init_key)
+                    _save_notified_attendance(notified_attendance_records)
+                    continue
+
+                # Foydalanuvchi initsializatsiya qilingan bo'lsa, yangi paydo bo'lgan NBlarni tekshiramiz
+                subjects = semester.get("_subjects") if isinstance(semester, dict) else []
+                subject_stats = build_attendance_subjects(
+                    records, subjects, timezone_name=user.timezone or "Asia/Tashkent"
+                )
+
+                new_records_found = False
+                for rec in records:
+                    rec_k = _attendance_record_key(user.telegram_id, rec)
+                    if rec_k not in notified_attendance_records:
+                        sent = await _send_new_nb_notification(
+                            bot, user, rec, subject_stats
+                        )
+                        if sent:
+                            notified_attendance_records.add(rec_k)
+                            new_records_found = True
+
+                if new_records_found:
+                    _save_notified_attendance(notified_attendance_records)
+
+            except Exception as e:
+                logger.error(f"Foydalanuvchi {user.telegram_id} davomatini tekshirishda xatolik: {e}")
+
+
 def start_scheduler(bot: Bot):
     """Schedulerni ishga tushirish"""
     # Har daqiqada tekshirish
@@ -615,6 +857,14 @@ def start_scheduler(bot: Bot):
         minutes=1,
         args=[bot],
         id="deadline_check",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        check_attendance_notifications,
+        trigger="interval",
+        minutes=2,
+        args=[bot],
+        id="attendance_check",
         replace_existing=True,
     )
     if not scheduler.running:

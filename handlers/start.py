@@ -113,7 +113,7 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
         "Bu bot orqali HEMIS tizimidagi barcha ma'lumotlaringizni qulay kuzatib borishingiz mumkin:\n"
         "• 📅 <b>Dars jadvali</b> va darsdan 10, 5 daqiqa oldin hamda dars boshlanganda avtomatik eslatma\n"
         "• 📝 <b>Topshiriqlar</b> (eng yaqin 3 ta vazifa) va deadline eslatmalari\n"
-        "• 📊 <b>Davomat (NB)</b>, 📈 <b>Baholar</b>, 🎯 <b>GPA</b> va 📚 <b>Fan materiallari</b>\n\n"
+        "• 📊 <b>Davomat (NB)</b> — yangi NB qo‘yilganda tezkor ogohlantirish, 📈 <b>Baholar</b>, 🎯 <b>GPA</b> va 📚 <b>Fan materiallari</b>\n\n"
         "👇 Quyidagi <b>Asosiy menyu</b>dan kerakli bo'limni tanlang:",
         reply_markup=main_menu_kb(user),
         disable_web_page_preview=True,
@@ -837,7 +837,7 @@ async def settings_handler(message: Message, session: AsyncSession):
         "🔔 <b>Dars eslatmalari:</b>\n"
         "• Dars boshlanishidan 10 va 5 daqiqa oldin hamda boshlanganda\n"
         "• Dars tugashidan 10 va 5 daqiqa oldin hamda tugaganda (tanaffus)\n"
-        "• Darslar oralig'idagi bo'sh soatda (okno) — dars yo'q soati va keyingi dars vaqti\n\n"
+        "• Darslar oralig'idagi bo'sh soatda (okno) — dars yo'q soati va keyingi dars vaqti\n• Yo‘qlamada yangi NB qo‘yilganda — qoldirilgan dars, foizi va qizil chiziq ogohlantirishi\n\n"
         "⏰ <b>Deadline eslatmalari:</b>\n"
         "• Topshiriq muddati tugashidan 3 kun, 1 kun va 3 soat oldin",
         reply_markup=settings_kb(user),
