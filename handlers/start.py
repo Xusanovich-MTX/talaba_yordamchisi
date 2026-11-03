@@ -637,7 +637,6 @@ async def receive_hemis_password(
 
     data = await state.get_data()
     hemis_login = data.get("hemis_login")
-    await state.clear()
     try:
         await message.delete()
     except Exception:
@@ -648,6 +647,7 @@ async def receive_hemis_password(
     )
     user = result.scalar_one_or_none()
     if not user or not user.hemis_api_url or not hemis_login:
+        await state.clear()
         await message.answer(
             "HEMIS ulash holati topilmadi. OTMni qaytadan tanlang.",
             reply_markup=main_menu_kb(),
@@ -662,30 +662,75 @@ async def receive_hemis_password(
         await session.execute(delete(Schedule).where(Schedule.user_id == user.id))
         await session.commit()
     except HemisLoginError as error:
+        retry_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🔄 Loginni qayta kiritish",
+                callback_data="hemis:reenter_login",
+            )],
+            [InlineKeyboardButton(
+                text="❌ Bekor qilish",
+                callback_data="hemis:cancel",
+            )],
+        ])
         if error.reason == "invalid_credentials":
-            reply = "❌ HEMIS login yoki parol noto'g'ri. Qaytadan ulanishni boshlang."
+            reply = (
+                "❌ <b>HEMIS paroli (yoki login) noto'g'ri kiritildi!</b>\n\n"
+                "Iltimos, parolingizni tekshirib, <b>qaytadan yuboring</b> (katta-kichik harflar va bo'sh joylarga e'tibor bering).\n\n"
+                "<i>Agar login (Talaba ID) raqamini xato kiritgan bo'lsangiz, quyidagi tugma orqali loginni o'zgartirishingiz mumkin:</i>"
+            )
+            await message.answer(reply, reply_markup=retry_kb)
+            return
         elif error.reason == "login_blocked":
             sec = error.retry_after or 60
-            reply = f"⏳ HEMIS: Ushbu login uchun parol bir necha bor noto'g'ri kiritilgani sabab tizim vaqtincha cheklov qo'ydi.\n\nIltimos, <b>{sec} soniya</b> kuting va to'g'ri parol bilan qayta urinib ko'ring."
+            reply = (
+                f"⏳ <b>HEMIS: Parol bir necha bor noto'g'ri kiritilgani sabab tizim vaqtincha cheklov qo'ydi.</b>\n\n"
+                f"Iltimos, <b>{sec} soniya</b> kuting va to'g'ri parol bilan qayta yuboring."
+            )
+            await message.answer(reply, reply_markup=retry_kb)
+            return
         elif error.reason == "captcha":
-            reply = "⚠️ HEMIS tizimi vaqtincha tekshiruv so'ramoqda. 1-2 daqiqadan so'ng qayta urinib ko'ring."
+            reply = (
+                "⚠️ <b>HEMIS tizimi vaqtincha tekshiruv so'ramoqda.</b>\n\n"
+                "Brauzer orqali rasmiy HEMIS sahifangizga (student.hemis.uz) bir marta kirib chiqing, so'ngra bu yerda parolingizni qayta yuboring."
+            )
+            await message.answer(reply, reply_markup=retry_kb)
+            return
         elif error.reason == "rate_limited":
-            reply = "⏳ HEMIS ko'p urinish sababli vaqtincha chekladi. 1 daqiqa kuting va qayta urinib ko'ring."
+            reply = (
+                "⏳ <b>HEMIS ko'p urinish sababli vaqtincha chekladi.</b>\n\n"
+                "Iltimos, 1 daqiqa kuting va parolingizni qayta yuboring."
+            )
+            await message.answer(reply, reply_markup=retry_kb)
+            return
         else:
             reply = "HEMIS hozir javob bermadi. Birozdan keyin qayta urinib ko'ring."
-        await message.answer(reply, reply_markup=main_menu_kb())
-        return
+            await state.clear()
+            await message.answer(reply, reply_markup=main_menu_kb())
+            return
     except (RuntimeError, ValueError):
+        await state.clear()
         await message.answer(
             "Sessiyani xavfsiz saqlab bo'lmadi. Parol saqlanmadi; administrator sozlamasini tekshiring.",
             reply_markup=main_menu_kb(),
         )
         return
 
+    await state.clear()
     await message.answer(
         f"HEMIS’ga <b>{escape(user.hemis_institution_name or '')}</b> orqali ulandingiz.",
         reply_markup=main_menu_kb(user),
     )
+
+
+@router.callback_query(F.data == "hemis:reenter_login")
+async def hemis_reenter_login_callback(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.set_state(HemisConnect.login)
+    if callback.message:
+        await callback.message.answer(
+            "HEMIS login (Talaba ID) raqamingizni qaytadan yuboring:",
+            reply_markup=cancel_kb(),
+        )
 
 
 @router.message(F.text == "🚪 Tizimdan chiqish")

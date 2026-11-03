@@ -2,7 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -323,6 +323,66 @@ class IdentityTests(unittest.IsolatedAsyncioTestCase):
             await session.refresh(user)
             self.assertEqual(user.hemis_session_ciphertext, "encrypted-session")
             self.assertFalse(hasattr(user, "hemis_password"))
+
+    async def test_hemis_wrong_password_keeps_state_and_allows_retry(self):
+        from services.hemis_auth import HemisLoginError
+        institution = {
+            "code": "342",
+            "name": "Samarqand davlat universiteti",
+            "api_url": "https://student.sam.example.uz/rest/v1/",
+            "student_url": "https://student.sam.example.uz/",
+        }
+        async with self.sessions() as session:
+            user = User(
+                telegram_id=900001,
+                username="student",
+                full_name="Ali Valiyev",
+                first_name="Ali",
+                last_name="Valiyev",
+                phone="+998901234567",
+                hemis_institution_code=institution["code"],
+                hemis_institution_name=institution["name"],
+                hemis_api_url=institution["api_url"],
+                hemis_student_url=institution["student_url"],
+            )
+            session.add(user)
+            await session.commit()
+            message = self.message()
+            message.text = "wrong-password"
+            message.delete = AsyncMock()
+            state = AsyncMock()
+            state.get_data.return_value = {"hemis_login": "student-login"}
+
+            with (
+                patch("handlers.start.HEMIS_SESSION_KEY", "configured-key"),
+                patch(
+                    "handlers.start.authenticate_hemis",
+                    side_effect=HemisLoginError("invalid_credentials"),
+                ),
+            ):
+                await start.receive_hemis_password(message, session, state)
+
+            # Parol xato bo'lganda state.clear() chaqirilmasligi kerak!
+            state.clear.assert_not_called()
+            answer_text = message.answer.await_args.args[0]
+            self.assertIn("HEMIS paroli (yoki login) noto'g'ri kiritildi", answer_text)
+            self.assertIn("qaytadan yuboring", answer_text)
+            reply_markup = message.answer.await_args.kwargs["reply_markup"]
+            self.assertEqual(reply_markup.inline_keyboard[0][0].callback_data, "hemis:reenter_login")
+            self.assertEqual(reply_markup.inline_keyboard[1][0].callback_data, "hemis:cancel")
+
+    async def test_hemis_reenter_login_callback_switches_state(self):
+        state = AsyncMock()
+        callback = SimpleNamespace(
+            data="hemis:reenter_login",
+            from_user=SimpleNamespace(id=900001),
+            message=SimpleNamespace(answer=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        await start.hemis_reenter_login_callback(callback, state)
+        state.set_state.assert_awaited_once_with(start.HemisConnect.login)
+        callback.message.answer.assert_awaited_once()
+        self.assertIn("Talaba ID", callback.message.answer.await_args.args[0])
 
     async def test_help_contains_configured_contact(self):
         message = self.message()
