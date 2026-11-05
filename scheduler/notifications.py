@@ -158,8 +158,7 @@ async def _get_cached_hemis_day_lessons(
         _hemis_day_cache[cache_key] = (now_mono, lessons)
         return lessons
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
+        logger.warning("HEMIS session expired for user %s during background check", user.id)
         return []
     except (HemisScheduleError, ValueError, RuntimeError) as error:
         logger.warning("HEMIS schedule reminder fetch failed for user %s: %s", user.id, error)
@@ -188,8 +187,7 @@ async def _get_cached_hemis_tasks(
         _hemis_tasks_cache[user.id] = (now_mono, tasks)
         return tasks
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
+        logger.warning("HEMIS session expired for user %s during background check", user.id)
         return []
     except (HemisScheduleError, ValueError, RuntimeError) as error:
         logger.warning("HEMIS task reminder fetch failed for user %s: %s", user.id, error)

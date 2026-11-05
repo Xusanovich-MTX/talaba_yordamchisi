@@ -75,4 +75,79 @@ async def authenticate_hemis(
     return {
         "access_token": str(data["token"]),
         "refresh_token": str(data.get("refresh_token") or ""),
+        "login": str(login).strip(),
+        "password": str(password),
     }
+
+
+async def refresh_or_reauth_session(
+    client: aiohttp.ClientSession,
+    api_url: str,
+    current_session: dict[str, str],
+    *,
+    request_fn=None,
+) -> tuple[str, dict[str, str]]:
+    """Eski access_token muddati tugaganda sessiyani yangilash.
+
+    1. Avval /auth/refresh-token orqali yangilashga urinadi (agar refresh_token mavjud bo'lsa).
+    2. Agar refresh_token ishlamasa yoki bo'sh bo'lsa, xavfsiz shifrlangan login va parol
+       yordamida HEMIS'ga avtomatik qayta kiradi va yangi access_token oladi.
+    3. Ikkalasi ham imkonsiz bo'lsa yoki parol o'zgargan bo'lsa, HemisSessionExpired chiqaradi.
+    """
+    from services.hemis_schedule import HemisScheduleError, HemisSessionExpired
+
+    if request_fn is None:
+        async def _default_request(c, method, url, **kwargs):
+            async with c.request(method, url, **kwargs) as resp:
+                try:
+                    payload = await resp.json(content_type=None)
+                except Exception:
+                    payload = None
+                return resp.status, payload
+        request_fn = _default_request
+
+    refresh_token = current_session.get("refresh_token")
+    if refresh_token:
+        try:
+            refresh_status, refresh_payload = await request_fn(
+                client,
+                "POST",
+                f"{api_url.rstrip('/')}/auth/refresh-token",
+                headers={"X-Refresh-Token": refresh_token},
+            )
+            refresh_data = (
+                refresh_payload.get("data")
+                if isinstance(refresh_payload, dict)
+                else None
+            )
+            if (
+                refresh_status < 400
+                and isinstance(refresh_data, dict)
+                and refresh_data.get("token")
+            ):
+                new_token = str(refresh_data["token"])
+                current_session["access_token"] = new_token
+                if refresh_data.get("refresh_token"):
+                    current_session["refresh_token"] = str(refresh_data["refresh_token"])
+                return new_token, current_session
+        except Exception:
+            pass
+
+    login = current_session.get("login")
+    password = current_session.get("password")
+    if login and password:
+        try:
+            new_session = await authenticate_hemis(api_url, login, password)
+            new_token = new_session["access_token"]
+            current_session["access_token"] = new_token
+            if new_session.get("refresh_token"):
+                current_session["refresh_token"] = new_session["refresh_token"]
+            return new_token, current_session
+        except HemisLoginError as err:
+            if err.reason == "invalid_credentials":
+                raise HemisSessionExpired("HEMIS paroli noto'g'ri yoki o'zgartirilgan.") from err
+            raise HemisScheduleError(f"HEMIS serveriga vaqtincha bog'lanib bo'lmadi ({err.reason}).") from err
+        except Exception as exc:
+            raise HemisScheduleError(f"HEMIS qayta avtorizatsiyada xatolik: {exc}") from exc
+
+    raise HemisSessionExpired("The HEMIS session expired.")

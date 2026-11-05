@@ -269,5 +269,85 @@ class HemisScheduleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("\n".join(chunks), text)
 
 
+    async def test_reauthenticates_automatically_with_stored_credentials_when_refresh_fails(self):
+        from services.hemis_auth import authenticate_hemis
+        session_with_creds = {
+            "access_token": "expired-access",
+            "refresh_token": "",
+            "login": "388200000000",
+            "password": "mypassword123",
+        }
+        request = AsyncMock(side_effect=[
+            (401, {"success": False, "data": {}}),
+            (200, {"success": True, "data": SEMESTERS}),
+            (200, {"success": True, "data": []}),
+        ])
+
+        with (
+            patch("services.hemis_schedule._request", new=request),
+            patch(
+                "services.hemis_auth.authenticate_hemis",
+                new=AsyncMock(return_value={
+                    "access_token": "freshly-authenticated-token",
+                    "refresh_token": "",
+                    "login": "388200000000",
+                    "password": "mypassword123",
+                }),
+            ) as mock_auth,
+        ):
+            _, lessons, updated_session = await fetch_current_week_schedule(
+                API_URL, session_with_creds, now=NOW
+            )
+
+        self.assertEqual(lessons, [])
+        self.assertEqual(updated_session["access_token"], "freshly-authenticated-token")
+        self.assertEqual(updated_session["login"], "388200000000")
+        self.assertEqual(updated_session["password"], "mypassword123")
+        mock_auth.assert_awaited_once_with(API_URL, "388200000000", "mypassword123")
+
+    async def test_reauthentication_fails_with_invalid_credentials_raises_session_expired(self):
+        from services.hemis_auth import HemisLoginError
+        from services.hemis_schedule import HemisSessionExpired
+        session_with_creds = {
+            "access_token": "expired-access",
+            "refresh_token": "",
+            "login": "388200000000",
+            "password": "wrong-password",
+        }
+        request = AsyncMock(return_value=(401, {"success": False, "data": {}}))
+
+        with (
+            patch("services.hemis_schedule._request", new=request),
+            patch(
+                "services.hemis_auth.authenticate_hemis",
+                side_effect=HemisLoginError("invalid_credentials"),
+            ),
+        ):
+            with self.assertRaises(HemisSessionExpired):
+                await fetch_current_week_schedule(API_URL, session_with_creds, now=NOW)
+
+    async def test_reauthentication_temporary_network_error_raises_schedule_error_not_session_expired(self):
+        from services.hemis_auth import HemisLoginError
+        from services.hemis_schedule import HemisScheduleError, HemisSessionExpired
+        session_with_creds = {
+            "access_token": "expired-access",
+            "refresh_token": "",
+            "login": "388200000000",
+            "password": "mypassword123",
+        }
+        request = AsyncMock(return_value=(401, {"success": False, "data": {}}))
+
+        with (
+            patch("services.hemis_schedule._request", new=request),
+            patch(
+                "services.hemis_auth.authenticate_hemis",
+                side_effect=HemisLoginError("unavailable"),
+            ),
+        ):
+            with self.assertRaises(HemisScheduleError) as cm:
+                await fetch_current_week_schedule(API_URL, session_with_creds, now=NOW)
+            self.assertNotIsInstance(cm.exception, HemisSessionExpired)
+
+
 if __name__ == "__main__":
     unittest.main()

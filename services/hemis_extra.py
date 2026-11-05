@@ -43,7 +43,7 @@ async def _hemis_authorized_session(
     timeout = aiohttp.ClientTimeout(total=15)
     async with aiohttp.ClientSession(timeout=timeout) as client:
         async def authorized_get(path: str, params: dict[str, str] | None = None):
-            nonlocal access_token
+            nonlocal access_token, current_session
             url = f"{api_url.rstrip('/')}{path}"
             status, payload = await _request(
                 client,
@@ -53,30 +53,9 @@ async def _hemis_authorized_session(
                 params=params,
             )
             if status == 401:
-                refresh_token = current_session.get("refresh_token")
-                if not refresh_token:
-                    raise HemisSessionExpired("The HEMIS session expired.")
-                refresh_status, refresh_payload = await _request(
-                    client,
-                    "POST",
-                    f"{api_url.rstrip('/')}/auth/refresh-token",
-                    headers={"X-Refresh-Token": refresh_token},
-                )
-                refresh_data = (
-                    refresh_payload.get("data")
-                    if isinstance(refresh_payload, dict)
-                    else None
-                )
-                if (
-                    refresh_status >= 400
-                    or not isinstance(refresh_data, dict)
-                    or not refresh_data.get("token")
-                ):
-                    raise HemisSessionExpired("The HEMIS session expired.")
-                access_token = str(refresh_data["token"])
-                current_session["access_token"] = access_token
-                current_session["refresh_token"] = str(
-                    refresh_data.get("refresh_token") or refresh_token
+                from services.hemis_auth import refresh_or_reauth_session
+                access_token, current_session = await refresh_or_reauth_session(
+                    client, api_url, current_session, request_fn=_request
                 )
                 status, payload = await _request(
                     client,

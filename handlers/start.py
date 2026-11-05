@@ -658,6 +658,8 @@ async def receive_hemis_password(
         session_data = await authenticate_hemis(
             user.hemis_api_url, hemis_login, password
         )
+        session_data["login"] = str(hemis_login).strip()
+        session_data["password"] = str(password)
         user.hemis_session_ciphertext = encrypt_hemis_session(session_data)
         await session.execute(delete(Schedule).where(Schedule.user_id == user.id))
         await session.commit()
@@ -798,8 +800,8 @@ async def help_handler(message: Message):
         "⚙️ <b>Sozlamalar</b> — Dars va topshiriq eslatmalarini boshqarish.\n"
         "🚪 <b>Tizimdan chiqish</b> — Boshqa profilga ulanish uchun joriy HEMIS akkauntdan chiqish.\n\n"
         "🔐 <b>4. Xavfsizlik kafolati (Ma'lumotlar qanday himoyalangan?):</b>\n"
-        "• <b>Parollar saqlanmaydi:</b> Talabaning HEMIS paroli na ma'lumotlar bazasida, na serverda saqlanadi. U faqat bir martalik avtorizatsiya vaqtida ishlatiladi va darhol xotiradan butunlay o'chiriladi.\n"
-        "• <b>Kriptografik shifrlash:</b> Tizimga kirish tokenlari xalqaro standartdagi <b>AES-128 (Fernet)</b> algoritmi bilan kuchli shifrlangan.\n"
+        "• <b>Kriptografik shifrlash:</b> Tizimga kirish ma'lumotlari xalqaro standartdagi <b>AES-128 (Fernet)</b> algoritmi bilan kuchli shifrlangan holda saqlanadi. Ma'lumotlarni hech kim ochiq holda ko'ra olmaydi.\n"
+        "• <b>Doimiy avtomatik sessiya:</b> Bot sessiyani avtomatik yangilab boradi, shuning uchun qayta-qayta parol terib kirish talab etilmaydi.\n"
         "• <b>Faqat rasmiy HEMIS talaba API:</b> Bot faqat talabaning o'ziga tegishli dars jadvali, topshiriq va baholarini ko'rsatish uchun xizmat qiladi, hech qanday begona amal bajarilmaydi.\n"
         "• <b>Istalgan vaqtda chiqish:</b> Xohlagan vaqtingizda «🚪 Tizimdan chiqish» tugmasini bosib, barcha ulanish ma'lumotlarini bazadan butunlay o'chirib yuborishingiz mumkin.\n\n"
         "🆔 /id — raqamli Telegram ID'ingizni ko'rish.\n"

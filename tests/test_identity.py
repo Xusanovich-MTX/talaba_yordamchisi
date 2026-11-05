@@ -318,6 +318,8 @@ class IdentityTests(unittest.IsolatedAsyncioTestCase):
             encrypt_session.assert_called_once_with({
                 "access_token": "hemis-access",
                 "refresh_token": "hemis-refresh",
+                "login": "student-login",
+                "password": "secret-user-password",
             })
             message.delete.assert_awaited_once()
             await session.refresh(user)
