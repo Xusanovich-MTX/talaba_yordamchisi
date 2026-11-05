@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "talaba_bot.db"
 CONFIRMED_PATH = ROOT / "runtime" / "confirmed_channel_users.json"
 NOTIFIED_ATTENDANCE_PATH = ROOT / "runtime" / "notified_attendance.json"
+NOTIFIED_TASKS_PATH = ROOT / "runtime" / "notified_tasks.json"
 MAX_RUNTIME_SECONDS = 5 * 3600 + 25 * 60  # 5h 25m
 
 
@@ -75,6 +76,10 @@ def restore_state() -> None:
             NOTIFIED_ATTENDANCE_PATH.parent.mkdir(parents=True, exist_ok=True)
             NOTIFIED_ATTENDANCE_PATH.write_text(payload["notified_attendance"], encoding="utf-8")
             print("[cloud_runner] Restored notified_attendance.json.", flush=True)
+        if payload.get("notified_tasks"):
+            NOTIFIED_TASKS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            NOTIFIED_TASKS_PATH.write_text(payload["notified_tasks"], encoding="utf-8")
+            print("[cloud_runner] Restored notified_tasks.json.", flush=True)
     except Exception as exc:
         print(f"[cloud_runner] Failed to decrypt/restore state: {exc}", flush=True)
 
@@ -87,6 +92,8 @@ def compute_state_digest() -> str:
         h.update(CONFIRMED_PATH.read_bytes())
     if NOTIFIED_ATTENDANCE_PATH.exists():
         h.update(NOTIFIED_ATTENDANCE_PATH.read_bytes())
+    if NOTIFIED_TASKS_PATH.exists():
+        h.update(NOTIFIED_TASKS_PATH.read_bytes())
     return h.hexdigest()
 
 
@@ -99,6 +106,7 @@ def save_state() -> None:
             "bot_db_b64": base64.b64encode(DB_PATH.read_bytes()).decode("ascii"),
             "confirmed_users": CONFIRMED_PATH.read_text(encoding="utf-8") if CONFIRMED_PATH.exists() else "[]",
             "notified_attendance": NOTIFIED_ATTENDANCE_PATH.read_text(encoding="utf-8") if NOTIFIED_ATTENDANCE_PATH.exists() else "[]",
+            "notified_tasks": NOTIFIED_TASKS_PATH.read_text(encoding="utf-8") if NOTIFIED_TASKS_PATH.exists() else "[]",
             "updated_at": int(time.time()),
         }
         enc_bytes = fernet.encrypt(json.dumps(payload).encode("utf-8"))

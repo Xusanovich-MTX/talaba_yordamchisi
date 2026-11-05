@@ -334,8 +334,10 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
             notify_deadline=False,
         )
         await self.save(disabled_user)
-        due_minutes = (175, 185, 1435, 1445, 4315, 4325)
-        excluded_minutes = (-1, 0, 60, 174, 186, 1434, 1446, 4314, 4326)
+        # 100m (3h tier), 500m (12h tier), 1000m (24h tier), 3000m (3d tier)
+        due_minutes = (100, 500, 1000, 3000)
+        # -1 (past), 0 (now/past), 5000 (> 3 days)
+        excluded_minutes = (-1, 0, 5000)
         await self.save(
             *[
                 self.task(now + timedelta(minutes=minutes), subject=f"Due {minutes}")
@@ -365,27 +367,35 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(texts), len(due_minutes))
         for minutes in due_minutes:
             self.assertTrue(any(f"<b>Due {minutes}</b>" in text for text in texts))
-        self.assertEqual(sum("3 kun qoldi" in text for text in texts), 2)
-        self.assertEqual(sum("1 kun qoldi" in text for text in texts), 2)
-        self.assertEqual(sum("3 soat qoldi" in text for text in texts), 2)
+        self.assertEqual(sum("3 kun qoldi" in text for text in texts), 1)
+        self.assertEqual(sum("24 soat" in text for text in texts), 1)
+        self.assertEqual(sum("12 soat qoldi" in text for text in texts), 1)
+        self.assertEqual(sum("3 soat qoldi" in text for text in texts), 1)
 
     async def test_same_task_gets_3d_1d_and_3h_reminders(self):
         now = datetime(2026, 10, 26, 9, 0)
         await self.save(self.task(now + timedelta(days=3)))
 
+        # Day 0: 3 days remaining
         with clock_at(now):
             await notifications.check_deadline_reminders(self.bot)
+        # Day 2: 24h remaining
         with clock_at(now + timedelta(days=2)):
             await notifications.check_deadline_reminders(self.bot)
-        with clock_at(now + timedelta(days=2, hours=21)):
+        # Day 2, +15h: 9h remaining (12h tier)
+        with clock_at(now + timedelta(days=2, hours=15)):
+            await notifications.check_deadline_reminders(self.bot)
+        # Day 2, +22h: 2h remaining (3h tier)
+        with clock_at(now + timedelta(days=2, hours=22)):
             await notifications.check_deadline_reminders(self.bot)
             await notifications.check_deadline_reminders(self.bot)
 
-        self.assertEqual(self.bot.send_message.await_count, 3)
+        self.assertEqual(self.bot.send_message.await_count, 4)
         texts = [call.kwargs["text"] for call in self.bot.send_message.await_args_list]
         self.assertIn("3 kun qoldi", texts[0])
-        self.assertIn("1 kun qoldi", texts[1])
-        self.assertIn("3 soat qoldi", texts[2])
+        self.assertIn("24 soat", texts[1])
+        self.assertIn("12 soat qoldi", texts[2])
+        self.assertIn("3 soat qoldi", texts[3])
 
     async def test_hemis_class_and_task_reminders_are_sent(self):
         now = datetime(2026, 10, 26, 9, 0)

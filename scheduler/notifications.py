@@ -49,7 +49,36 @@ scheduler = AsyncIOScheduler(timezone=TIMEZONE)
 
 # Eslatilgan narsalarni takror yubormaslik uchun (xotirada saqlaymiz)
 notified_schedules: set[str] = set()
-notified_tasks: set[str] = set()
+
+# Topshiriq eslatmalarini takror yubormaslik uchun faylda saqlaymiz
+NOTIFIED_TASKS_PATH = (
+    Path(__file__).resolve().parent.parent / "runtime" / "notified_tasks.json"
+)
+
+
+def _load_notified_tasks() -> set[str]:
+    if NOTIFIED_TASKS_PATH.exists():
+        try:
+            data = json.loads(NOTIFIED_TASKS_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return set(data)
+        except Exception as exc:
+            logger.warning("Could not load %s: %s", NOTIFIED_TASKS_PATH, exc)
+    return set()
+
+
+def _save_notified_tasks(keys: set[str]) -> None:
+    try:
+        NOTIFIED_TASKS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        NOTIFIED_TASKS_PATH.write_text(
+            json.dumps(sorted(keys), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        logger.warning("Could not save %s: %s", NOTIFIED_TASKS_PATH, exc)
+
+
+notified_tasks: set[str] = _load_notified_tasks()
 
 # Davomat (NB) eslatmalarini takror yubormaslik uchun faylda saqlaymiz
 NOTIFIED_ATTENDANCE_PATH = (
@@ -93,7 +122,7 @@ def _attendance_record_key(user_telegram_id: int, rec: dict[str, Any]) -> str:
     return f"nb_{user_telegram_id}_{lesson_date}_{subj_name}_{hours}"
 
 # HEMIS ma'lumotlarini har daqiqada qayta so'ramaslik uchun kesh (15 daqiqa)
-HEMIS_CACHE_TTL_SECONDS = 900
+HEMIS_CACHE_TTL_SECONDS = 300
 _hemis_day_cache: dict[tuple[int, str], tuple[float, list[dict[str, Any]]]] = {}
 _hemis_tasks_cache: dict[int, tuple[float, list[dict[str, Any]]]] = {}
 
@@ -116,10 +145,12 @@ CLASS_END_REMINDER_WINDOWS: tuple[tuple[int, timedelta, timedelta], ...] = (
 )
 
 # Topshiriq muddati tugashidan 3 kun, 1 kun va 3 soat oldin eslatma oynalari (daqiqalarda)
+# Topshiriq muddati tugashidan 3 kun, 24 soat, 12 soat va 3 soat oldin eslatma oynalari (daqiqalarda)
 DEADLINE_REMINDER_WINDOWS: tuple[tuple[str, float, float, str], ...] = (
-    ("task_3d", 4315.0, 4325.0, "⏰ 3 kun qoldi!"),
-    ("task_1d", 1435.0, 1445.0, "⏰ 1 kun qoldi!"),
-    ("task_3h", 175.0, 185.0, "⚠️ 3 soat qoldi!"),
+    ("task_3d", 1440.0, 4320.0, "⏰ 3 kun qoldi!"),
+    ("task_24h", 720.0, 1440.0, "⏰ 24 soat (1 kun) qoldi!"),
+    ("task_12h", 180.0, 720.0, "⚠️ 12 soat qoldi!"),
+    ("task_3h", 0.0, 180.0, "🚨 3 soat qoldi!"),
 )
 
 
@@ -564,11 +595,12 @@ async def check_deadline_reminders(bot: Bot):
             diff_minutes = diff.total_seconds() / 60
 
             for prefix, min_minutes, max_minutes, time_text in DEADLINE_REMINDER_WINDOWS:
-                if min_minutes <= diff_minutes <= max_minutes:
+                if min_minutes < diff_minutes <= max_minutes:
                     key = f"{prefix}_{user.telegram_id}_{task.id}"
                     if key not in notified_tasks:
                         if await send_deadline_msg(bot, user, task, time_text):
                             notified_tasks.add(key)
+                            _save_notified_tasks(notified_tasks)
                     break
 
         # 2. HEMIS ulangan foydalanuvchilarning yuklanmagan topshiriqlarini tekshirish
@@ -610,7 +642,7 @@ async def check_deadline_reminders(bot: Bot):
                 )
 
                 for prefix, min_minutes, max_minutes, time_text in DEADLINE_REMINDER_WINDOWS:
-                    if min_minutes <= diff_minutes <= max_minutes:
+                    if min_minutes < diff_minutes <= max_minutes:
                         key = f"hemis_{prefix}_{user.telegram_id}_{task_id}"
                         if key not in notified_tasks:
                             pseudo_task = Task(
@@ -621,21 +653,34 @@ async def check_deadline_reminders(bot: Bot):
                             )
                             if await send_deadline_msg(bot, user, pseudo_task, time_text):
                                 notified_tasks.add(key)
+                                _save_notified_tasks(notified_tasks)
                         break
 
 
 async def send_deadline_msg(bot: Bot, user: User, task: Task, time_text: str) -> bool:
     """Deadline xabarini yuborish"""
     try:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📝 Topshiriqlar",
+                        callback_data="hemis_tasks",
+                    )
+                ]
+            ]
+        )
         await bot.send_message(
             chat_id=user.telegram_id,
             text=(
-                f"🔔 <b>Deadline eslatmasi!</b>\n\n"
-                f"📚 <b>{escape(task.subject)}</b>\n"
-                f"📄 {escape(task.description)}\n"
+                f"🔔 <b>Topshiriq eslatmasi (Deadline)!</b>\n\n"
+                f"📚 <b>{escape(task.subject, quote=False)}</b>\n"
+                f"📄 {escape(task.description, quote=False)}\n"
                 f"📅 Muddat: <b>{task.deadline.strftime('%d.%m.%Y %H:%M')}</b>\n\n"
-                f"{time_text}"
+                f"⏳ <b>Qolgan vaqt:</b> <b>{time_text}</b>\n\n"
+                f"💡 <i>Topshiriqni vaqtida yuklashni unutmang!</i>"
             ),
+            reply_markup=kb,
             parse_mode=ParseMode.HTML,
         )
         logger.info(f"Deadline eslatmasi: {user.telegram_id} - {task.subject}")
@@ -840,7 +885,7 @@ async def check_attendance_notifications(bot: Bot) -> None:
 
 def start_scheduler(bot: Bot):
     """Schedulerni ishga tushirish"""
-    # Har daqiqada tekshirish
+    now_tz = datetime.now(TIMEZONE)
     scheduler.add_job(
         check_schedule_reminders,
         trigger="interval",
@@ -848,6 +893,7 @@ def start_scheduler(bot: Bot):
         args=[bot],
         id="schedule_check",
         replace_existing=True,
+        next_run_time=now_tz,
     )
     scheduler.add_job(
         check_deadline_reminders,
@@ -856,14 +902,16 @@ def start_scheduler(bot: Bot):
         args=[bot],
         id="deadline_check",
         replace_existing=True,
+        next_run_time=now_tz,
     )
     scheduler.add_job(
         check_attendance_notifications,
         trigger="interval",
-        minutes=2,
+        minutes=1,
         args=[bot],
         id="attendance_check",
         replace_existing=True,
+        next_run_time=now_tz,
     )
     if not scheduler.running:
         scheduler.start()

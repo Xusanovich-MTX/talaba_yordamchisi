@@ -124,7 +124,7 @@ async def _send_hemis_upcoming_tasks(
     await message.answer(summary_text, reply_markup=kb)
 
 
-@router.callback_query(F.data == "hemis_tasks_back")
+@router.callback_query(F.data.in_(["hemis_tasks", "hemis_tasks_back"]))
 async def back_to_task_subjects(callback: CallbackQuery, session: AsyncSession):
     if callback.message is None or isinstance(callback.message, InaccessibleMessage):
         await callback.answer("Topshiriqlar bo'limini qayta oching.", show_alert=True)
