@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import Task, User
-from handlers.schedule import _hemis_connection_error, _split_telegram_text
+from handlers.schedule import _hemis_connection_error, _split_telegram_text, handle_session_expired
 from keyboards.reply import main_menu_kb, cancel_kb
 from keyboards.inline import (
     task_actions_kb,
@@ -78,12 +78,7 @@ async def _send_hemis_upcoming_tasks(
             user.hemis_session_ciphertext = encrypt_hemis_session(updated_session)
             await session.commit()
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(message, user)
         return
     except HemisScheduleError as error:
         logger.warning("HEMIS tasks request failed: %s", error)
@@ -480,12 +475,7 @@ async def ask_task_upload_file(
             user.hemis_session_ciphertext = encrypt_hemis_session(updated_session)
             await session.commit()
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await callback.message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(callback, user)
         return
     except HemisScheduleError as error:
         logger.warning("HEMIS task detail error: %s", error)
@@ -783,16 +773,8 @@ async def confirm_task_upload_callback(
             await session.commit()
     except HemisSessionExpired:
         _cleanup_temp_upload_file(data)
-        user.hemis_session_ciphertext = None
-        await session.commit()
         await state.clear()
-        try:
-            await callback.message.edit_text(
-                "❌ HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring."
-            )
-        except Exception:
-            pass
-        await callback.message.answer("Bosh menyu:", reply_markup=main_menu_kb())
+        await handle_session_expired(callback, user)
         return
     except HemisScheduleError as error:
         _cleanup_temp_upload_file(data)

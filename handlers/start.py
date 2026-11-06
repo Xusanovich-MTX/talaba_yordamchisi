@@ -34,7 +34,7 @@ from services.channel_sub import (
 )
 from services.hemis_auth import HemisLoginError, authenticate_hemis
 from services.hemis_catalog import get_hemis_institutions, match_hemis_institutions
-from services.hemis_session import encrypt_hemis_session
+from services.hemis_session import decrypt_hemis_session, encrypt_hemis_session
 
 router = Router()
 
@@ -733,6 +733,62 @@ async def hemis_reenter_login_callback(callback: CallbackQuery, state: FSMContex
             "HEMIS login (Talaba ID) raqamingizni qaytadan yuboring:",
             reply_markup=cancel_kb(),
         )
+
+
+@router.callback_query(F.data == "hemis:quick_reauth")
+async def hemis_quick_reauth_callback(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext
+):
+    await callback.answer()
+    user = await session.scalar(
+        select(User).where(User.telegram_id == callback.from_user.id)
+    )
+    if not user or not user.hemis_api_url:
+        if callback.message:
+            await callback.message.answer(
+                "Oliygohingiz tanlanmagan. Iltimos, 🎓 HEMIS ulash tugmasi orqali o'qish joyingizni tanlang.",
+                reply_markup=main_menu_kb(),
+            )
+        return
+
+    login = None
+    if user.hemis_session_ciphertext:
+        try:
+            sess_data = decrypt_hemis_session(user.hemis_session_ciphertext)
+            login = sess_data.get("login")
+        except Exception:
+            pass
+
+    if login:
+        await state.update_data(
+            hemis_institution_name=user.hemis_institution_name,
+            hemis_api_url=user.hemis_api_url,
+            hemis_student_url=user.hemis_student_url,
+            hemis_login=login,
+        )
+        await state.set_state(HemisConnect.password)
+        if callback.message:
+            await callback.message.answer(
+                f"🎓 Oliygoh: <b>{escape(user.hemis_institution_name or '')}</b>\n"
+                f"👤 Talaba ID (login): <code>{escape(login)}</code>\n\n"
+                "🔑 <b>HEMIS parolingizni kiriting:</b>\n"
+                "<i>(Parol xavfsiz shifrlanadi va keyinchalik bot sizni aslo tizimdan chiqarmaydi)</i>",
+                reply_markup=cancel_kb(),
+            )
+    else:
+        await state.update_data(
+            hemis_institution_name=user.hemis_institution_name,
+            hemis_api_url=user.hemis_api_url,
+            hemis_student_url=user.hemis_student_url,
+        )
+        await state.set_state(HemisConnect.login)
+        if callback.message:
+            await callback.message.answer(
+                f"🎓 Oliygoh: <b>{escape(user.hemis_institution_name or '')}</b>\n\n"
+                "👤 <b>12 xonali HEMIS talaba ID raqamingizni (login) kiriting:</b>\n"
+                "<i>(Masalan: 388200000000)</i>",
+                reply_markup=cancel_kb(),
+            )
 
 
 @router.message(F.text == "🚪 Tizimdan chiqish")

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import User
-from handlers.schedule import _hemis_connection_error, _split_telegram_text
+from handlers.schedule import _hemis_connection_error, _split_telegram_text, handle_session_expired
 from keyboards.inline import (
     attendance_detail_kb,
     attendance_subjects_kb,
@@ -122,12 +122,7 @@ async def show_attendance(
         )
         await _save_updated_session(session, user, session_data, updated_session)
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(message, user)
         return
     except HemisScheduleError as error:
         logger.warning("HEMIS attendance request failed: %s", error)
@@ -174,12 +169,7 @@ async def show_subject_attendance_callback(
         )
         await _save_updated_session(session, user, session_data, updated_session)
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await callback.message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(callback, user)
         return
     except HemisScheduleError:
         await callback.message.answer(
@@ -271,12 +261,7 @@ async def show_grades(
         )
         await _save_updated_session(session, user, session_data, updated_session)
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(message, user)
         return
     except HemisScheduleError as error:
         logger.warning("HEMIS grades request failed: %s", error)
@@ -313,12 +298,7 @@ async def show_gpa(
         )
         await _save_updated_session(session, user, session_data, updated_session)
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(message, user)
         return
     except HemisScheduleError as error:
         logger.warning("HEMIS GPA request failed: %s", error)
@@ -359,12 +339,7 @@ async def show_semester_gpa_callback(
         )
         await _save_updated_session(session, user, session_data, updated_session)
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await callback.message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(callback, user)
         return
     except HemisScheduleError:
         await callback.message.answer(
@@ -405,12 +380,7 @@ async def show_exams(
         )
         await _save_updated_session(session, user, session_data, updated_session)
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(message, user)
         return
     except HemisScheduleError as error:
         logger.warning("HEMIS exams request failed: %s", error)
@@ -447,12 +417,7 @@ async def show_resources_menu(
         )
         await _save_updated_session(session, user, session_data, updated_session)
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(message, user)
         return
     except HemisScheduleError as error:
         logger.warning("HEMIS subjects for resources failed: %s", error)
@@ -604,12 +569,7 @@ async def show_subject_resources_files(
         )
         await _save_updated_session(session, user, session_data, updated_session)
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await callback.message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(callback, user)
         return
     except HemisScheduleError:
         await callback.message.answer(

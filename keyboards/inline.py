@@ -356,3 +356,14 @@ def task_upload_confirm_kb() -> InlineKeyboardMarkup:
         ]
     )
 
+def hemis_quick_reauth_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔑 Parolni yangilash",
+                    callback_data="hemis:quick_reauth",
+                )
+            ]
+        ]
+    )

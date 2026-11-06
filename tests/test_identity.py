@@ -386,6 +386,39 @@ class IdentityTests(unittest.IsolatedAsyncioTestCase):
         callback.message.answer.assert_awaited_once()
         self.assertIn("Talaba ID", callback.message.answer.await_args.args[0])
 
+    async def test_hemis_quick_reauth_with_stored_login_prompts_for_password(self):
+        state = AsyncMock()
+        callback = SimpleNamespace(
+            data="hemis:quick_reauth",
+            from_user=SimpleNamespace(id=900001),
+            message=SimpleNamespace(answer=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        async with self.sessions() as session:
+            user = User(
+                telegram_id=900001,
+                full_name="Ali Valiyev",
+                hemis_institution_name="SamDU",
+                hemis_api_url="https://student.samdu.uz/rest/v1/",
+                hemis_session_ciphertext="cipher-with-login",
+            )
+            session.add(user)
+            await session.commit()
+
+            with patch("handlers.start.decrypt_hemis_session", return_value={"login": "388200000001", "access_token": "token"}):
+                await start.hemis_quick_reauth_callback(callback, session, state)
+
+        state.set_state.assert_awaited_once_with(start.HemisConnect.password)
+        state.update_data.assert_awaited_once_with(
+            hemis_institution_name="SamDU",
+            hemis_api_url="https://student.samdu.uz/rest/v1/",
+            hemis_student_url=None,
+            hemis_login="388200000001",
+        )
+        callback.message.answer.assert_awaited_once()
+        self.assertIn("388200000001", callback.message.answer.await_args.args[0])
+        self.assertIn("parolingizni kiriting", callback.message.answer.await_args.args[0].lower())
+
     async def test_help_contains_configured_contact(self):
         message = self.message()
         await start.help_handler(message)

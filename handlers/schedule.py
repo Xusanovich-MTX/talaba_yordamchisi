@@ -1,3 +1,4 @@
+from typing import Any
 from datetime import date, timedelta
 import logging
 
@@ -45,6 +46,37 @@ def _split_telegram_text(text: str, limit: int = 3800) -> list[str]:
     if current:
         chunks.append(current)
     return chunks
+
+
+async def handle_session_expired(
+    target: Any,
+    user: User | None = None,
+) -> None:
+    """HEMIS sessiyasi yangilanishi talab etilganda foydalanuvchini tizimdan CHIQARMASDAN,
+
+    parolni bitta tugma orqali xavfsiz yangilab olish imkonini beradi.
+    """
+    from html import escape
+    from keyboards.inline import hemis_quick_reauth_kb
+
+    inst_line = f"🎓 Oliygoh: <b>{escape(user.hemis_institution_name)}</b>\n\n" if user and user.hemis_institution_name else ""
+    text = (
+        "⚠️ <b>HEMIS sessiyasini yangilash talab etiladi</b>\n\n"
+        f"{inst_line}"
+        "Tizimdan chiqmasdan ma'lumotlarni ko'rishda davom etish uchun parolingizni bir marta yangilab qo'ying:\n\n"
+        "<i>(Parol xavfsiz shifrlanadi va keyinchalik bot sizni aslo tizimdan chiqarmaydi)</i>"
+    )
+    markup = hemis_quick_reauth_kb()
+    if hasattr(target, "message") and target.message is not None:
+        if not isinstance(target.message, InaccessibleMessage):
+            await target.message.answer(text, reply_markup=markup)
+        if hasattr(target, "answer"):
+            try:
+                await target.answer()
+            except Exception:
+                pass
+    else:
+        await target.answer(text, reply_markup=markup)
 
 
 @router.message(F.text.in_({"📅 Dars jadvali", "📆 HEMIS jadvali"}))
@@ -160,12 +192,7 @@ async def show_hemis_day(callback: CallbackQuery, session: AsyncSession):
             user.hemis_session_ciphertext = encrypt_hemis_session(updated_session)
             await session.commit()
     except HemisSessionExpired:
-        user.hemis_session_ciphertext = None
-        await session.commit()
-        await callback.message.answer(
-            "HEMIS sessiyasi tugagan. 🎓 HEMIS ulash bo'limidan qayta kiring.",
-            reply_markup=main_menu_kb(),
-        )
+        await handle_session_expired(callback, user)
         return
     except HemisScheduleError as error:
         logger.warning("HEMIS daily schedule request failed: %s", error)

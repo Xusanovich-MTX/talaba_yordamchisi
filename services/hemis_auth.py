@@ -34,7 +34,7 @@ async def authenticate_hemis(
     if parsed.scheme != "https" or not parsed.hostname:
         raise HemisLoginError("unavailable")
 
-    endpoint = f"{api_url.rstrip('/')}/auth/my-hemis-login"
+    base = api_url.rstrip("/")
     client_ip = _client_ip_for(login)
     headers = {
         "User-Agent": "okhttp/4.9.2",
@@ -44,40 +44,57 @@ async def authenticate_hemis(
         "X-Real-IP": client_ip,
     }
 
+    endpoints = [f"{base}/auth/my-hemis-login", f"{base}/auth/login"]
+    last_error: HemisLoginError = HemisLoginError("unavailable")
+
     timeout = aiohttp.ClientTimeout(total=15)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as client:
-            async with client.post(
-                endpoint,
-                headers=headers,
-                json={"login": login, "password": password},
-            ) as response:
-                payload = await response.json(content_type=None)
-                status = response.status
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
-        raise HemisLoginError("unavailable") from None
+            for endpoint in endpoints:
+                try:
+                    async with client.post(
+                        endpoint,
+                        headers=headers,
+                        json={"login": login, "password": password},
+                    ) as response:
+                        payload = await response.json(content_type=None)
+                        status = response.status
+                except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+                    last_error = HemisLoginError("unavailable")
+                    continue
 
-    data = payload.get("data") if isinstance(payload, dict) else None
-    error_code = data.get("error") if isinstance(data, dict) else None
-    retry_after = int(data.get("retry_after") or 0) if isinstance(data, dict) else 0
+                data = payload.get("data") if isinstance(payload, dict) else None
+                error_code = data.get("error") if isinstance(data, dict) else None
+                retry_after = int(data.get("retry_after") or 0) if isinstance(data, dict) else 0
 
-    if status == 429:
-        if error_code == "LOGIN_BLOCKED":
-            raise HemisLoginError("login_blocked", retry_after=retry_after)
-        if error_code == "CAPTCHA_REQUIRED":
-            raise HemisLoginError("captcha")
-        raise HemisLoginError("rate_limited", retry_after=retry_after)
-    if status >= 400:
-        raise HemisLoginError("invalid_credentials" if status in (400, 401) else "unavailable")
-    if not isinstance(data, dict) or not data.get("token"):
-        raise HemisLoginError("invalid_credentials")
+                if status == 429:
+                    if error_code == "LOGIN_BLOCKED":
+                        raise HemisLoginError("login_blocked", retry_after=retry_after)
+                    if error_code == "CAPTCHA_REQUIRED":
+                        raise HemisLoginError("captcha")
+                    raise HemisLoginError("rate_limited", retry_after=retry_after)
 
-    return {
-        "access_token": str(data["token"]),
-        "refresh_token": str(data.get("refresh_token") or ""),
-        "login": str(login).strip(),
-        "password": str(password),
-    }
+                if status == 200 and isinstance(data, dict) and data.get("token"):
+                    return {
+                        "access_token": str(data["token"]),
+                        "refresh_token": str(data.get("refresh_token") or ""),
+                        "login": str(login).strip(),
+                        "password": str(password),
+                    }
+
+                if status in (400, 401):
+                    last_error = HemisLoginError("invalid_credentials")
+                    continue
+                elif status in (404, 405):
+                    continue
+                else:
+                    last_error = HemisLoginError("unavailable")
+    except HemisLoginError:
+        raise
+    except Exception:
+        raise HemisLoginError("unavailable")
+
+    raise last_error
 
 
 async def refresh_or_reauth_session(

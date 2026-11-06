@@ -131,7 +131,7 @@ class ScheduleHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Birozdan keyin", reply)
         self.assertTrue(callback.message.answer.await_args.kwargs["reply_markup"].inline_keyboard)
 
-    async def test_expired_session_is_cleared_and_requires_reconnection(self):
+    async def test_expired_session_preserves_ciphertext_and_offers_quick_reauth(self):
         callback = self.callback()
         with (
             patch.object(schedule, "decrypt_hemis_session", return_value=dict(SESSION_DATA)),
@@ -139,9 +139,14 @@ class ScheduleHandlerTests(unittest.IsolatedAsyncioTestCase):
         ):
             async with self.sessions() as session:
                 await schedule.show_hemis_day(callback, session)
-        self.assertIsNone(await self.stored_ciphertext())
+        # Session ciphertext must NEVER be wiped on expiry
+        self.assertEqual(await self.stored_ciphertext(), "owner-encrypted-session")
         self.assertEqual(await self.stored_ciphertext(900018), "other-encrypted-session")
-        self.assertIn("qayta kiring", self.reply_text(callback))
+        reply = self.reply_text(callback)
+        self.assertIn("yangilash", reply.lower())
+        markup = callback.message.answer.await_args.kwargs["reply_markup"]
+        btn = markup.inline_keyboard[0][0]
+        self.assertEqual(btn.callback_data, "hemis:quick_reauth")
 
     async def test_temporary_hemis_error_preserves_session_and_day_picker_for_retry(self):
         callback = self.callback()
