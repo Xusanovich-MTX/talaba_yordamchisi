@@ -97,6 +97,25 @@ async def authenticate_hemis(
     raise last_error
 
 
+def extract_login_from_jwt(token: str) -> str | None:
+    """HEMIS JWT tokenidan 12 xonali talaba login/ID raqamini ajratib oladi."""
+    if not token or not isinstance(token, str):
+        return None
+    try:
+        parts = token.split(".")
+        if len(parts) >= 2:
+            import base64
+            import json
+            pad = "=" * ((4 - len(parts[1]) % 4) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(parts[1] + pad))
+            login = claims.get("jti") or claims.get("sub")
+            if login:
+                return str(login).strip()
+    except Exception:
+        pass
+    return None
+
+
 async def refresh_or_reauth_session(
     client: aiohttp.ClientSession,
     api_url: str,
@@ -151,6 +170,11 @@ async def refresh_or_reauth_session(
             pass
 
     login = current_session.get("login")
+    if not login and current_session.get("access_token"):
+        extracted = extract_login_from_jwt(current_session["access_token"])
+        if extracted:
+            login = extracted
+            current_session["login"] = login
     password = current_session.get("password")
     if login and password:
         try:

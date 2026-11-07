@@ -597,7 +597,7 @@ class NotificationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(scheduler.running)
             self.assertEqual(
                 {job.id for job in scheduler.get_jobs()},
-                {"schedule_check", "deadline_check", "attendance_check"},
+                {"schedule_check", "deadline_check", "attendance_check", "hemis_keepalive"},
             )
         finally:
             if scheduler.running:

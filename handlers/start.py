@@ -756,6 +756,13 @@ async def hemis_quick_reauth_callback(
         try:
             sess_data = decrypt_hemis_session(user.hemis_session_ciphertext)
             login = sess_data.get("login")
+            if not login and sess_data.get("access_token"):
+                from services.hemis_auth import extract_login_from_jwt
+                login = extract_login_from_jwt(sess_data["access_token"])
+                if login:
+                    sess_data["login"] = login
+                    user.hemis_session_ciphertext = encrypt_hemis_session(sess_data)
+                    await session.commit()
         except Exception:
             pass
 

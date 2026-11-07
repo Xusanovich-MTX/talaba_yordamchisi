@@ -883,6 +883,66 @@ async def check_attendance_notifications(bot: Bot) -> None:
                 logger.error(f"Foydalanuvchi {user.telegram_id} davomatini tekshirishda xatolik: {e}")
 
 
+async def keep_hemis_sessions_alive(bot: Bot) -> None:
+    """HEMIS sessiyalari muddati (24 soat) tugamasdan oldin, barcha talabalar sessiyasini
+
+    orqa fonda har 30 daqiqada tekshirib, muddati 4 soatdan kam qolgan yoki eskirgan
+    barcha tokenlarni avtomatik yangilab, uzluksiz holatda ushlab turadi.
+    Shu tariqa talaba 1 kun yoki 1 oy botga kirmasa ham uning sessiyasi aslo tugamaydi.
+    """
+    import base64
+    import json
+    import aiohttp
+    from services.hemis_auth import refresh_or_reauth_session
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(
+                User.hemis_api_url.is_not(None),
+                User.hemis_session_ciphertext.is_not(None),
+            )
+        )
+        users = result.scalars().all()
+
+        for user in users:
+            try:
+                session_data = decrypt_hemis_session(user.hemis_session_ciphertext)
+                if not session_data or not isinstance(session_data, dict):
+                    continue
+
+                access_token = session_data.get("access_token")
+                token_needs_refresh = True
+                if access_token:
+                    try:
+                        parts = access_token.split(".")
+                        if len(parts) >= 2:
+                            pad = "=" * ((4 - len(parts[1]) % 4) % 4)
+                            claims = json.loads(base64.urlsafe_b64decode(parts[1] + pad))
+                            exp = claims.get("exp")
+                            if exp and time_module.time() < (float(exp) - 14400):
+                                token_needs_refresh = False
+                    except Exception:
+                        token_needs_refresh = True
+
+                if not token_needs_refresh:
+                    continue
+
+                timeout = aiohttp.ClientTimeout(total=20)
+                async with aiohttp.ClientSession(timeout=timeout) as client:
+                    try:
+                        new_token, updated_session = await refresh_or_reauth_session(
+                            client, user.hemis_api_url, session_data
+                        )
+                        if updated_session != session_data:
+                            user.hemis_session_ciphertext = encrypt_hemis_session(updated_session)
+                            await session.commit()
+                            logger.info(f"User {user.telegram_id} HEMIS sessiyasi orqa fonda avtomatik uzaytirildi.")
+                    except Exception as err:
+                        logger.debug(f"User {user.telegram_id} sessiyasini uzaytirish o'tkazib yuborildi: {err}")
+            except Exception as e:
+                logger.debug(f"keep_hemis_sessions_alive xatolik (user {getattr(user, 'id', None)}): {e}")
+
+
 def start_scheduler(bot: Bot):
     """Schedulerni ishga tushirish"""
     now_tz = datetime.now(TIMEZONE)
@@ -910,6 +970,15 @@ def start_scheduler(bot: Bot):
         minutes=1,
         args=[bot],
         id="attendance_check",
+        replace_existing=True,
+        next_run_time=now_tz,
+    )
+    scheduler.add_job(
+        keep_hemis_sessions_alive,
+        trigger="interval",
+        minutes=30,
+        args=[bot],
+        id="hemis_keepalive",
         replace_existing=True,
         next_run_time=now_tz,
     )
