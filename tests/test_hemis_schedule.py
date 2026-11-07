@@ -183,6 +183,18 @@ class HemisScheduleTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(text.index("Earlier &amp; fan"), text.index("Later &lt;fan&gt;"))
         self.assertNotIn("Other day", text)
 
+    def test_formats_training_type_amaliyot_seminar_maruza(self):
+        lesson = lesson_for("2026-10-28", title="Matematik analiz", start_time="09:00")
+        lesson["trainingType"] = {"name": "Ma'ruza", "code": "11"}
+        text = format_day_schedule([lesson], date(2026, 10, 28))
+        self.assertIn("Matematik analiz", text)
+        self.assertIn("Ma'ruza", text)
+
+        lesson_amaliyot = lesson_for("2026-10-28", title="Fizika", start_time="10:30")
+        lesson_amaliyot["trainingType"] = {"name": "Amaliy mashg'ulot", "code": "12"}
+        text_amaliyot = format_day_schedule([lesson_amaliyot], date(2026, 10, 28))
+        self.assertIn("Amaliy mashg'ulot", text_amaliyot)
+
     def test_empty_daily_schedule_names_the_selected_date(self):
         text = format_day_schedule([], date(2026, 11, 1))
 

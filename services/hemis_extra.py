@@ -733,9 +733,10 @@ def format_morning_motivation(
         start_t = str(pair.get("start_time") or "--:--")
         end_t = str(pair.get("end_time") or "")
         time_label = f"{start_t}–{end_t}" if end_t else start_t
+        training = (lesson.get("trainingType") or {}).get("name") or ""
         room = (lesson.get("auditorium") or {}).get("name") or ""
         emp = (lesson.get("employee") or {}).get("name") or ""
-        extra = " | ".join(x for x in (room, emp) if x)
+        extra = " | ".join(x for x in (training, room, emp) if x)
         lesson_rows.append(
             (
                 start_t,
@@ -794,9 +795,10 @@ def format_today_summary(
         start_t = str(pair.get("start_time") or "--:--")
         end_t = str(pair.get("end_time") or "")
         time_label = f"{start_t}–{end_t}" if end_t else start_t
+        training = (lesson.get("trainingType") or {}).get("name") or ""
         room = (lesson.get("auditorium") or {}).get("name") or ""
         emp = (lesson.get("employee") or {}).get("name") or ""
-        extra = " | ".join(x for x in (room, emp) if x)
+        extra = " | ".join(x for x in (training, room, emp) if x)
         lesson_rows.append(
             (start_t, f"• <b>{escape(time_label)}</b> — {escape(str(subj))}" + (f" ({escape(extra)})" if extra else ""))
         )

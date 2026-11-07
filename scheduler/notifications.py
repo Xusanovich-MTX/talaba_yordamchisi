@@ -473,6 +473,10 @@ async def check_schedule_reminders(bot: Bot):
                         continue
 
                     subject_name = str(subject_dict.get("name") or "Noma'lum fan")
+                    training = lesson.get("trainingType")
+                    training_name = str(training.get("name") if isinstance(training, dict) else (training or "")).strip()
+                    if training_name:
+                        subject_name = f"{subject_name} ({training_name})"
                     details = []
                     room = lesson.get("auditorium")
                     teacher = lesson.get("employee")

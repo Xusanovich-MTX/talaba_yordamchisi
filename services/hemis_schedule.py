@@ -234,13 +234,13 @@ def format_week_schedule(
         lesson_time = str(pair.get("start_time") or "--:--")
         end_time = str(pair.get("end_time") or "")
         title = str(subject.get("name") or "Noma'lum fan")
-        teacher = lesson.get("employee")
-        room = lesson.get("auditorium")
         details = []
-        if isinstance(teacher, dict) and teacher.get("name"):
-            details.append(str(teacher["name"]))
-        if isinstance(room, dict) and room.get("name"):
-            details.append(str(room["name"]))
+        for key in ("trainingType", "employee", "auditorium"):
+            detail = lesson.get(key)
+            if isinstance(detail, dict) and detail.get("name"):
+                details.append(str(detail["name"]))
+            elif isinstance(detail, str) and detail.strip():
+                details.append(detail.strip())
         date = datetime.fromtimestamp(timestamp, local_timezone)
         day = WEEKDAY_NAMES[date.weekday()]
         date_label = date.strftime("%d.%m.%Y")
@@ -256,7 +256,7 @@ def format_week_schedule(
         lines.append(f"<b>{day}</b>")
         for start_time, end_time, title in sorted(day_lessons):
             time_label = f"{start_time}–{end_time}" if end_time else start_time
-            lines.append(f"{escape(time_label)}  {escape(title)}")
+            lines.append(f"{escape(time_label)}  {escape(title, quote=False)}")
         lines.append("")
     return "\n".join(lines).strip()
 
@@ -286,10 +286,12 @@ def format_day_schedule(
         start_time = str(pair.get("start_time") or "--:--")
         end_time = str(pair.get("end_time") or "")
         details = [str(subject.get("name") or "Noma'lum fan")]
-        for key in ("employee", "auditorium"):
+        for key in ("trainingType", "employee", "auditorium"):
             detail = lesson.get(key)
             if isinstance(detail, dict) and detail.get("name"):
                 details.append(str(detail["name"]))
+            elif isinstance(detail, str) and detail.strip():
+                details.append(detail.strip())
         rows.append((start_time, end_time, " | ".join(details)))
 
     if not rows:
@@ -297,5 +299,5 @@ def format_day_schedule(
     else:
         for start_time, end_time, title in sorted(rows):
             time_label = f"{start_time}–{end_time}" if end_time else start_time
-            lines.append(f"{escape(time_label)}  {escape(title)}")
+            lines.append(f"{escape(time_label)}  {escape(title, quote=False)}")
     return "\n".join(lines)
