@@ -18,6 +18,7 @@ from database.models import Base, User
 from handlers import academic
 from services.hemis_extra import (
     build_attendance_subjects,
+    filter_assigned_exams,
     calculate_semester_gpas,
     format_attendance,
     format_exams,
@@ -156,6 +157,38 @@ class AcademicFeaturesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Oraliq nazorat (1-qaydnoma)", text)
         self.assertIn("SI va RT_220", text)
         self.assertIn("5 kun qoldi", text)
+
+    def test_filter_assigned_exams_filters_unassigned_subjects(self):
+        exams = [
+            {"subject": {"id": 101, "name": "Oliy matematika"}, "examType": {"name": "Oraliq nazorat"}},
+            {"subject": {"id": 999, "name": "Fransuz tili"}, "examType": {"name": "Oraliq nazorat"}},
+        ]
+        enrolled_subjects = [
+            {"subject": {"id": 101, "name": "Oliy matematika"}},
+            {"subject": {"id": 102, "name": "Fizika"}},
+        ]
+        filtered = filter_assigned_exams(exams, enrolled_subjects)
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["subject"]["name"], "Oliy matematika")
+
+    def test_filter_assigned_exams_matches_by_code_and_normalized_name(self):
+        exams = [
+            {"subject": {"code": "AI101", "name": "Sun'iy intellekt (Oraliq)"}},
+            {"subject": {"code": "ROB202", "name": "Robototexnika"}},
+        ]
+        enrolled_subjects = [
+            {"curriculumSubject": {"subject": {"code": "AI101", "name": "Sun`iy intellekt"}}},
+        ]
+        filtered = filter_assigned_exams(exams, enrolled_subjects)
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["subject"]["code"], "AI101")
+
+    def test_filter_assigned_exams_falls_back_when_no_enrolled_found(self):
+        exams = [
+            {"subject": {"id": 101, "name": "Oliy matematika"}},
+        ]
+        filtered = filter_assigned_exams(exams, [])
+        self.assertEqual(len(filtered), 1)
 
     def test_format_subject_resources_renders_download_links_and_pagination(self):
         resources = [

@@ -491,6 +491,134 @@ def format_grades_overview(
 
 # --- 3. IMTIHONLAR JADVALI (EXAMS) ---
 
+def _normalize_subject_name(name: str) -> str:
+    """Fan nomini apostroflar, ortiqcha probellar va harflar registridan tozalaydi."""
+    if not name:
+        return ""
+    cleaned = (
+        name.lower()
+        .replace("ʻ", "'")
+        .replace("‘", "'")
+        .replace("`", "'")
+        .replace("’", "'")
+        .strip()
+    )
+    return " ".join(cleaned.split())
+
+
+def filter_assigned_exams(
+    exams: list[dict[str, Any]],
+    enrolled_subjects: list[dict[str, Any]],
+    raw_subject_list: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Oraliq va yakuniy imtihonlar jadvalidan faqat talabaga biriktirilgan fanlarni ajratib oladi."""
+    if not exams:
+        return []
+
+    enrolled_subject_ids: set[int] = set()
+    enrolled_cs_ids: set[int] = set()
+    enrolled_codes: set[str] = set()
+    enrolled_names: set[str] = set()
+
+    def _index_subject(s: dict | None, cs: dict | None = None):
+        if isinstance(s, dict):
+            sid = s.get("id")
+            if sid is not None:
+                try:
+                    enrolled_subject_ids.add(int(sid))
+                except (ValueError, TypeError):
+                    pass
+            code = str(s.get("code") or "").strip().lower()
+            if code:
+                enrolled_codes.add(code)
+            name = _normalize_subject_name(str(s.get("name") or ""))
+            if name:
+                enrolled_names.add(name)
+
+        if isinstance(cs, dict):
+            csid = cs.get("id")
+            if csid is not None:
+                try:
+                    enrolled_cs_ids.add(int(csid))
+                except (ValueError, TypeError):
+                    pass
+            inner_s = cs.get("subject")
+            if isinstance(inner_s, dict):
+                sid = inner_s.get("id")
+                if sid is not None:
+                    try:
+                        enrolled_subject_ids.add(int(sid))
+                    except (ValueError, TypeError):
+                        pass
+                code = str(inner_s.get("code") or "").strip().lower()
+                if code:
+                    enrolled_codes.add(code)
+                name = _normalize_subject_name(str(inner_s.get("name") or ""))
+                if name:
+                    enrolled_names.add(name)
+
+    if isinstance(enrolled_subjects, list):
+        for item in enrolled_subjects:
+            if isinstance(item, dict):
+                _index_subject(item.get("subject"), item.get("curriculumSubject"))
+
+    if isinstance(raw_subject_list, list):
+        for item in raw_subject_list:
+            if isinstance(item, dict):
+                _index_subject(item.get("subject"), item.get("curriculumSubject"))
+
+    # Agar biriktirilgan fanlar aniqlanmagan bo'lsa (ro'yxat bo'sh bo'lsa), xavfsizlik uchun filtrlash o'tkazilmaydi
+    if not enrolled_subject_ids and not enrolled_names:
+        return exams
+
+    def _is_assigned(exam: dict[str, Any]) -> bool:
+        if not isinstance(exam, dict):
+            return False
+        subj = exam.get("subject") or {}
+        cs = exam.get("curriculumSubject") or {}
+        cs_subj = (cs.get("subject") or {}) if isinstance(cs, dict) else {}
+
+        # 1. Fan ID bo'yicha tekshirish
+        for pot_id in (subj.get("id"), cs_subj.get("id"), exam.get("subject_id")):
+            if pot_id is not None:
+                try:
+                    if int(pot_id) in enrolled_subject_ids:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+
+        # 2. O'quv rejadagi fan (CurriculumSubject) ID bo'yicha tekshirish
+        for pot_csid in (cs.get("id") if isinstance(cs, dict) else None, exam.get("curriculum_subject_id")):
+            if pot_csid is not None:
+                try:
+                    if int(pot_csid) in enrolled_cs_ids:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+
+        # 3. Fan kodi (code) bo'yicha tekshirish
+        for pot_code in (subj.get("code"), cs_subj.get("code"), exam.get("subject_code")):
+            c = str(pot_code or "").strip().lower()
+            if c and c in enrolled_codes:
+                return True
+
+        # 4. Fan nomi bo'yicha tekshirish
+        for pot_name in (subj.get("name"), cs_subj.get("name"), exam.get("subject_name"), exam.get("name")):
+            raw_n = str(pot_name or "").strip()
+            if not raw_n:
+                continue
+            norm_n = _normalize_subject_name(raw_n)
+            if norm_n and norm_n in enrolled_names:
+                return True
+            for en in enrolled_names:
+                if len(en) >= 5 and (en in norm_n or norm_n in en):
+                    return True
+
+        return False
+
+    return [e for e in exams if _is_assigned(e)]
+
+
 async def fetch_exams(
     api_url: str,
     session_data: dict[str, str],
@@ -505,8 +633,23 @@ async def fetch_exams(
         sem_code = semester.get("code") or semester.get("id")
         if sem_code is None:
             return semester, []
-        exams = await authorized_get("/education/exam-table", {"semester": str(sem_code)})
-        return semester, exams
+        params = {"semester": str(sem_code)}
+        exams = await authorized_get("/education/exam-table", params)
+        if not isinstance(exams, list) or not exams:
+            return semester, []
+
+        try:
+            enrolled = await _fetch_enrolled_subjects(authorized_get, params)
+        except Exception:
+            enrolled = []
+
+        try:
+            raw_enrolled = await authorized_get("/education/subject-list", params)
+        except Exception:
+            raw_enrolled = []
+
+        filtered_exams = filter_assigned_exams(exams, enrolled, raw_enrolled)
+        return semester, filtered_exams
 
     return await _hemis_authorized_session(api_url, session_data, _run)
 
@@ -527,7 +670,7 @@ def format_exams(
     lines.append("")
 
     if not exams:
-        lines.append("📭 Joriy semestr uchun imtihonlar jadvali hali kiritilmagan.")
+        lines.append("📭 Sizga biriktirilgan fanlar bo'yicha imtihonlar jadvali hali kiritilmagan.")
         return "\n".join(lines)
 
     sorted_exams = sorted(

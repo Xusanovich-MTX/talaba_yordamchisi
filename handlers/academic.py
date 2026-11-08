@@ -363,7 +363,17 @@ async def show_semester_gpa_callback(
 
 # --- 4. IMTIHONLAR JADVALI (EXAMS) ---
 
-@router.message(F.text == "🎓 Imtihonlar")
+@router.message(
+    F.text.in_({
+        "🎓 Imtihonlar",
+        "📝 Imtihonlar jadvali",
+        "🎯 Oraliq nazoratlar",
+        "Oraliq nazoratlar",
+        "Oraliq nazorat",
+        "Imtihonlar",
+        "Imtihonlar jadvali",
+    })
+)
 async def show_exams(
     message: Message, session: AsyncSession, state: FSMContext
 ):
