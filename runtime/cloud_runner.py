@@ -32,11 +32,18 @@ def restore_state() -> None:
 
     # 1. Try fetching latest bot_state.enc from origin/bot-state branch
     try:
+        token = (os.getenv("GH_WORKFLOW_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
+        repo = os.getenv("GITHUB_REPOSITORY", "Xusanovich-MTX/talaba_yordamchisi").strip()
+        if token:
+            fetch_url = f"https://x-access-token:{token}@github.com/{repo}.git"
+            fetch_cmd = ["git", "fetch", fetch_url, "bot-state:refs/remotes/origin/bot-state"]
+        else:
+            fetch_cmd = ["git", "fetch", "origin", "bot-state"]
         res = subprocess.run(
-            ["git", "fetch", "origin", "bot-state"],
+            fetch_cmd,
             cwd=str(ROOT),
             capture_output=True,
-            timeout=20,
+            timeout=25,
         )
         if res.returncode == 0:
             show = subprocess.run(
@@ -119,21 +126,31 @@ def save_state() -> None:
             subprocess.run(["git", "add", "bot_state.enc"], cwd=tmpdir, check=True)
             subprocess.run(["git", "commit", "-q", "-m", "Sync encrypted bot state"], cwd=tmpdir, check=True)
 
-            remote_res = subprocess.run(
-                ["git", "remote", "get-url", "origin"],
-                cwd=str(ROOT),
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            remote_url = remote_res.stdout.strip()
-            subprocess.run(
+            token = (os.getenv("GH_WORKFLOW_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
+            repo = os.getenv("GITHUB_REPOSITORY", "Xusanovich-MTX/talaba_yordamchisi").strip()
+            if token:
+                remote_url = f"https://x-access-token:{token}@github.com/{repo}.git"
+            else:
+                remote_res = subprocess.run(
+                    ["git", "remote", "get-url", "origin"],
+                    cwd=str(ROOT),
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                remote_url = remote_res.stdout.strip()
+
+            push_res = subprocess.run(
                 ["git", "push", "-q", "--force", remote_url, "HEAD:refs/heads/bot-state"],
                 cwd=tmpdir,
+                capture_output=True,
+                text=True,
                 timeout=30,
-                check=True,
             )
-            print("[cloud_runner] Synced encrypted state to bot-state branch.", flush=True)
+            if push_res.returncode == 0:
+                print("[cloud_runner] Synced encrypted state to bot-state branch.", flush=True)
+            else:
+                print(f"[cloud_runner] State sync push failed: {push_res.stderr.strip()}", flush=True)
     except Exception as exc:
         print(f"[cloud_runner] State sync warning: {exc}", flush=True)
 
